@@ -76,11 +76,38 @@ private def transparentKinds : List Name :=
     `null, `by, `Lean.cdotTk, ``Lean.Parser.Tactic.paren ]
 
 /--
+A node standing for a bare token rather than a tactic.
+
+Macro expansions hang their output off whichever token they used as a source
+reference, so the `rfl` that `rw` runs afterwards appears under a node of kind
+`«]»`.  Such kinds are named after the token itself, so they start with
+punctuation, while every real tactic kind starts with a letter.
+-/
+private def isTokenKind : Name → Bool
+  | .str _ s => !s.isEmpty && !((s.get 0).isAlpha || s.get 0 == '_')
+  | _ => false
+
+/--
+A tactic the user actually wrote, rather than one a macro produced.
+
+Expanding `have h : P := by tac` records a whole chain of `focus`, `case` and
+`withAnnotateState` nodes; Lean marks every one of them synthetic, while the
+`have` itself and the tactics inside the `by` block keep their original source
+info.  That flag is what tells the two apart, since the synthetic nodes borrow
+real source positions and so cannot be spotted by their range alone.
+-/
+private def isUserWritten (stx : Syntax) : Bool :=
+  match stx.getHeadInfo with
+  | .original .. => true
+  | _ => false
+
+/--
 Turn an info tree into a tree of steps.
 
-Two kinds of noise are removed: the grouping nodes above, and the macro
-expansions Lean records for a tactic, which show up as children covering
-exactly the same source range as their parent.
+Three kinds of noise are removed: the grouping nodes above, the macro
+expansions Lean records for a tactic, and the children covering exactly the
+same source range as their parent, which are a tactic re-elaborated under a
+different name.
 -/
 partial def collectSteps (t : InfoTree) (ctx? : Option ContextInfo := none) : List Step :=
   match t with
@@ -90,7 +117,8 @@ partial def collectSteps (t : InfoTree) (ctx? : Option ContextInfo := none) : Li
     let kids := cs.toList.flatMap (collectSteps · ctx?)
     match i, ctx? with
     | .ofTacticInfo ti, some ctx =>
-      if transparentKinds.contains ti.stx.getKind then kids
+      let kind := ti.stx.getKind
+      if transparentKinds.contains kind || isTokenKind kind || !isUserWritten ti.stx then kids
       else
         let here : Step := .mk ctx ti []
         let kids := kids.filter fun k => k.range != here.range

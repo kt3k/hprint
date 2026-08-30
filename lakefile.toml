@@ -1,6 +1,6 @@
 name = "hprint"
 version = "0.1.0"
-defaultTargets = ["HPrint", "hprint"]
+defaultTargets = ["HPrint", "hprint", "test"]
 testDriver = "test"
 
 [[lean_lib]]

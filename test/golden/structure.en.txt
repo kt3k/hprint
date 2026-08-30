@@ -1,0 +1,46 @@
+Theorem (have_by).
+  For all propositions p and q, if p and q, then p ∧ q.
+
+Proof.
+Let p and q be propositions. Assume p (call this hp) and q (call this hq).
+We must show that p ∧ q. We claim that p (call this h).
+
+  This holds by hp.
+
+This holds by ⟨h, hq⟩.
+
+∎
+
+Theorem (first_alt).
+  For all propositions p, if p, then p.
+
+Proof.
+Let p be a proposition. Assume p (call this hp). We must show that p. This
+holds by hp.
+
+∎
+
+Theorem (all_goals_close).
+  For all propositions p and q, if p and q, then p ∧ q.
+
+Proof.
+Let p and q be propositions. Assume p (call this hp) and q (call this hq).
+We must show that p ∧ q. We prove the two parts in turn. This holds by one
+of our assumptions.
+
+  We must show that q. This holds by one of our assumptions.
+
+∎
+
+Theorem (seq_focus).
+  For all propositions p and q, if p and q, then p ∧ q.
+
+Proof.
+Let p and q be propositions. Assume p (call this hp) and q (call this hq).
+We must show that p ∧ q. We prove the two parts in turn.
+
+  We must show that p. This holds by one of our assumptions.
+
+  We must show that q. This holds by one of our assumptions.
+
+∎

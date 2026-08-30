@@ -203,30 +203,62 @@ private def stateGoal (c : Ctx) (g : GoalView) (k : Sink) : Sink :=
 
 /-! ## The walk -/
 
+/--
+What the children of a step are: a combinator carrying on with the same goal,
+a side proof of a fact the step introduced, or the bodies of the branches the
+step produced.
+-/
+private inductive Nesting where
+  | leaf
+  | inline
+  | subproof
+  | branches (groups : List (String × List Step))
+
+/-- Group consecutive steps that work on the same goal. -/
+private def groupByGoal (steps : List Step) : List (List Step) :=
+  steps.foldl (fun acc s =>
+    match acc.reverse with
+    | grp :: rest =>
+      if (grp.head?.bind fun h => h.info.goalsBefore.head?) == s.info.goalsBefore.head? then
+        ((grp ++ [s]) :: rest).reverse
+      else acc ++ [[s]]
+    | [] => [[s]]) []
+
 mutual
 
 /--
-Split a branching tactic's children into one group per branch.  A child that
-works on a goal its parent never saw is the body of a branch; if every child
-works on the parent's own goal there is no branching to report.
+Classify a step's children by the goals they work on.
+
+Children that keep working on their parent's own goal belong to a combinator
+(`first`, `all_goals`, `try`).  Children proving a goal whose statement is the
+hypothesis their parent introduced are a side proof (`have h : P := by ...`).
+Anything else is a branch body, grouped by the case tag Lean assigned it.
 -/
-private partial def branchesOf (s : Step) : IO (List (String × List Step)) := do
-  if s.children.isEmpty then return []
+private partial def classify (c : Ctx) (s : Step) (fresh : List HypView) (produced : Nat) :
+    IO Nesting := do
+  if s.children.isEmpty then return .leaf
   let parent := s.info.goalsBefore.head?
-  let mut groups : List (String × List Step) := []
-  for child in s.children do
-    match child.info.goalsBefore.head? with
-    | none => return []
-    | some g =>
-      if some g == parent then return []
-      let tag ← child.ctx.runMetaM {} do pure (← g.getTag)
-      let tag := (tag.components.getLast?.map (·.toString)).getD ""
-      match groups.reverse with
-      | (t, ss) :: rest =>
-        if t == tag then groups := ((t, ss ++ [child]) :: rest).reverse
-        else groups := groups ++ [(tag, [child])]
-      | [] => groups := [(tag, [child])]
-  pure groups
+  if s.children.any fun ch => ch.info.goalsBefore.head? == parent then return .inline
+  match s.children.head? with
+  | none => return .leaf
+  | some first =>
+    let views ← beforeViews c.ph first
+    if produced == 1 then
+      if let some cg := views.head? then
+        if fresh.any fun h => h.type == cg.target then return .subproof
+    let mut groups : List (String × List Step) := []
+    for child in s.children do
+      match child.info.goalsBefore.head? with
+      | none => return .leaf
+      | some g =>
+        let tag ← child.ctx.runMetaM {} do pure (← g.getTag)
+        let tag := (tag.components.getLast?.map (·.toString)).getD ""
+        match groups.reverse with
+        | (t, ss) :: rest =>
+          if t == tag then groups := ((t, ss ++ [child]) :: rest).reverse
+          else groups := groups ++ [(tag, [child])]
+        | [] => groups := [(tag, [child])]
+    return .branches groups
 
 private partial def narrate (c : Ctx) (steps : List Step) (k : Sink) : IO Sink := do
   let mut k := k
@@ -245,17 +277,41 @@ private partial def narrateStep (c : Ctx) (s : Step) (k : Sink) : IO Sink := do
   | some g =>
     let produced := after.length + 1 - before.length
     let newGoals := after.take produced
-    let branches ← branchesOf s
+    let fresh := ((newGoals.head?.map (·.hyps)).getD []).filter (isNew g.hyps)
     if s.kind == `Lean.calcTactic then
-      pure (calcBlock c s k)
-    else if !branches.isEmpty then
-      narrateBranching c s g name branches k
-    else if s.kind == `Lean.cdot then
+      return calcBlock c s k
+    if s.kind == `Lean.cdot then
       let body ← narrate c s.children (stateGoal c g default)
-      pure (k.block ph (.nested none (body.finish ph)))
-    else if !s.children.isEmpty then
-      narrateHave c s g newGoals k
-    else if produced == 0 then
+      return k.block ph (.nested none (body.finish ph))
+    match ← classify c s fresh produced with
+    | .inline =>
+      -- A combinator such as `first`, `all_goals` or `<;>`: the children are
+      -- the proof.  When they span several goals, give each one its own block
+      -- so the reader can tell which claim is being settled.
+      let groups := groupByGoal s.children
+      if groups.length ≤ 1 then narrate c s.children k
+      else
+        let parent := s.info.goalsBefore.head?
+        let mut k := k
+        for grp in groups do
+          match grp.head? with
+          | none => pure ()
+          | some first =>
+            if first.info.goalsBefore.head? == parent then
+              -- Still the goal we were given: `t` of `t <;> t'`.
+              k ← narrate c grp k
+            else
+              let views ← beforeViews ph first
+              let head := match views.head? with
+                | some bg => stateGoal c bg default
+                | none => default
+              let body ← narrate c grp head
+              k := k.block ph (.nested none (body.finish ph))
+        pure k
+    | .subproof => narrateHave c s fresh k
+    | .branches groups => narrateBranching c s g name groups k
+    | .leaf =>
+    if produced == 0 then
       match ph.reason name (prettyArgs ph args) with
       | some why => pure (k.say (ph.closedBy why))
       | none =>
@@ -266,7 +322,6 @@ private partial def narrateStep (c : Ctx) (s : Step) (k : Sink) : IO Sink := do
       match newGoals.head? with
       | none => pure k
       | some a =>
-        let fresh := a.hyps.filter (isNew g.hyps)
         let objects := fresh.filter fun h => !h.isProp
         let facts := fresh.filter fun h => h.isProp
         if !fresh.isEmpty && a.target == g.target then
@@ -320,16 +375,16 @@ private partial def narrateBranching (c : Ctx) (s : Step) (g : GoalView) (name :
         body := stateGoal c bg body
         body ← narrate c steps body
         let label :=
-          if isInduction then
-            if facts.isEmpty then ph.baseCaseLabel tag else ph.stepCaseLabel tag
-          else ph.caseLabel tag
-        k := k.block ph (.nested (some label) (body.finish ph))
+          if tag.isEmpty then none
+          else if isInduction then
+            some (if facts.isEmpty then ph.baseCaseLabel tag else ph.stepCaseLabel tag)
+          else some (ph.caseLabel tag)
+        k := k.block ph (.nested label (body.finish ph))
   pure k
 
-private partial def narrateHave (c : Ctx) (s : Step) (g : GoalView) (newGoals : List GoalView)
-    (k : Sink) : IO Sink := do
+private partial def narrateHave (c : Ctx) (s : Step) (fresh : List HypView) (k : Sink) :
+    IO Sink := do
   let ph := c.ph
-  let fresh := ((newGoals.head?.map (·.hyps)).getD []).filter (isNew g.hyps)
   let item : Named := match fresh.head? with
     | some h => { name := some h.name, stmt := h.prose }
     | none => { stmt := ph.anonymousFact }

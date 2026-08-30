@@ -105,9 +105,16 @@ file ─▶ Lean frontend ─▶ InfoTree ─▶ steps ─▶ goal diff ─▶ b
 
 `HPrint/Analysis.lean` runs `Lean.Elab.IO.processCommands` over the file and
 turns the resulting `InfoTree` into a tree of steps: one per tactic, carrying
-its syntax and its `goalsBefore` / `goalsAfter`. Two kinds of noise are dropped
-— the grouping nodes (`tacticSeq`, `by`) and the macro expansions Lean records
-for a tactic, which appear as children covering exactly the same source range.
+its syntax and its `goalsBefore` / `goalsAfter`.
+
+Most of that tree is not the proof. `have h : P := by tac` elaborates into a
+chain of `focus`, `case`, `withAnnotateState` and `paren` nodes, and `rw [h]`
+hangs the `rfl` it runs afterwards off the closing `]`. Three rules cut it back
+to what the user wrote: grouping kinds (`tacticSeq`, `by`) are transparent, so
+are nodes Lean marked synthetic — macro output borrows real source positions,
+so its range cannot give it away, but its `SourceInfo` can — and so are nodes
+named after a bare token rather than a tactic. What survives is exactly the
+tactics in the source.
 
 `HPrint/Render.lean` then narrates by **diffing the goal state**, not by
 switching on tactic names:
@@ -119,6 +126,13 @@ switching on tactic names:
 | One goal became several | one block per branch, labelled by Lean's own case tag |
 | Goal replaced | "Rewriting with h, it remains to show ..." |
 | Goal closed | "This holds by linear arithmetic." |
+
+Nested tactics are classified the same way, by the goals their children work
+on. Children carrying on with their parent's own goal belong to a combinator
+(`first`, `all_goals`, `t <;> t'`), so the children are narrated and the
+combinator itself is not mentioned. Children proving a goal whose statement is
+the hypothesis their parent introduced are the side proof of a `have`. Anything
+else is a branch body, and gets a block labelled with Lean's case tag.
 
 A tactic's name is consulted only for *why* something holds — `omega` becomes
 "linear arithmetic", `ring` becomes "expanding both sides as polynomials" — and

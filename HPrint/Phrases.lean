@@ -285,14 +285,21 @@ private def labelJa (n : Named) : String :=
   | some nm => s!"{n.stmt}（これを {nm} とおく）"
   | none => n.stmt
 
-/-- Latin formulas need a space before the next particle; Japanese text does not. -/
+private def isJapanese (c : Char) : Bool :=
+  let v := c.toNat
+  (0x3040 ≤ v && v ≤ 0x30FF) || (0x4E00 ≤ v && v ≤ 0x9FFF) || "）」』（「『、。".any (· == c)
+
+/-- Latin formulas need a space before the following particle; Japanese text does not. -/
 private def glue (s : String) : String :=
   match s.toList.getLast? with
-  | some c =>
-    let v := c.toNat
-    if (0x3040 ≤ v && v ≤ 0x30FF) || (0x4E00 ≤ v && v ≤ 0x9FFF) || "）」』".any (· == c)
-    then "" else " "
+  | some c => if isJapanese c then "" else " "
   | none => " "
+
+/-- The same, for the space *before* an interpolated fragment. -/
+private def glueBefore (s : String) : String :=
+  match s.toList.head? with
+  | some c => if isJapanese c then "" else " "
+  | none => ""
 
 /--
 Turn a statement into something a `〜こと` clause can attach to, so that
@@ -362,9 +369,15 @@ def ja : Phrases where
 
   weHave item r :=
     match r with
-    | some r => s!"{r} により {labelJa item} が成り立つ。"
-    | none => s!"{labelJa item} が成り立つ。"
-  claim item := s!"ここで {labelJa item} を示す。"
+    | some r =>
+      let l := labelJa item
+      s!"{r}{glue r}により {l}{glue l}が成り立つ。"
+    | none =>
+      let l := labelJa item
+      s!"{l}{glue l}が成り立つ。"
+  claim item :=
+    let l := labelJa item
+    s!"ここで {l}{glue l}を示す。"
 
   inductionOn subject noun :=
     match noun with
@@ -393,7 +406,7 @@ def ja : Phrases where
         else s!"{joinJa (facts.map (·.stmt))} を満たす "
       s!"{from_}{such}{joinJa objects} が得られる。"
 
-  closedBy r := s!"これは{r}により成り立つ。"
+  closedBy r := s!"これは{glueBefore r}{r}{glue r}により成り立つ。"
   closedByHow how := s!"{how}、証明が終わる。"
   reason name args :=
     match List.lookup name reasonsJa with
