@@ -1,23 +1,12 @@
 import HPrint.Analysis
 import HPrint.Doc
 
-/-!
-# Telling the proof back
-
-The narration is driven by the *difference* between the goal state before and
-after each tactic, not by a table of tactic names.  New hypotheses become "Let
-n be a natural number" or "Assume P"; a changed target becomes "it remains to
-show ..."; one goal becoming several becomes a case split.  A tactic's name is
-consulted only to say *why* something holds ("by linear arithmetic").
--/
-
 open Lean Elab
 
 namespace HPrint
 
 structure Options where
   lang : String := "en"
-  /-- Restate the theorem before the proof. -/
   statement : Bool := true
   width : Nat := 76
   format : OutFormat := .text
@@ -26,10 +15,8 @@ structure Options where
 private structure Ctx where
   ph : Phrases
   input : String
-  /-- Whether to restate the theorem before its proof. -/
   restate : Bool
 
-/-- Collects sentences into paragraphs so the output reads as prose. -/
 private structure Sink where
   blocks : Array Block := #[]
   pending : Array String := #[]
@@ -54,19 +41,14 @@ def finish (k : Sink) (ph : Phrases) : List Block := (k.flush ph).blocks.toList
 
 end Sink
 
-/-! ## Reading the tactic itself -/
-
-/-- The tactic's leading keyword, which is what the phrasebooks key on. -/
 private def tacticName (c : Ctx) (s : Step) : String :=
   (s.source c.input).takeWhile fun ch => !(ch == ' ' || ch == '\n' || ch == '[')
 
-/-- Everything after the leading keyword, as written. -/
 private def tacticArgs (c : Ctx) (s : Step) : Option String :=
   let src := s.source c.input
   let rest := ((src.drop (tacticName c s).length).trim).replace "\n" " "
   if rest.isEmpty then none else some rest
 
-/-- The first component of `⟨a, b⟩`: the witness, when there is one. -/
 private def firstComponent (src : String) : Option String :=
   let s := src.trim
   if !(s.startsWith "⟨") then none else
@@ -81,7 +63,6 @@ private def firstComponent (src : String) : Option String :=
     let w := (String.mk cur.reverse).trim
     if w.isEmpty then none else some w
 
-/-- Turn `[a, b]` into a readable list, leaving anything else alone. -/
 private def prettyArgs (ph : Phrases) (args : Option String) : Option String :=
   args.map fun a =>
     let a := a.trim
@@ -89,14 +70,10 @@ private def prettyArgs (ph : Phrases) (args : Option String) : Option String :=
       ph.list ((a.drop 1 |>.dropRight 1).splitOn "," |>.map (·.trim) |>.filter (!·.isEmpty))
     else a
 
-/-- Source text of the tactic's first argument, e.g. `n` in `induction n with ...`. -/
 private def majorPremise (c : Ctx) (s : Step) : Option String :=
   let t := textAt c.input s.stx[1]
   if t.isEmpty then none else some t
 
-/-! ## Introducing hypotheses -/
-
-/-- Whatever a tactic assigns after `:=`, as one line. -/
 private def afterAssign (src : String) : Option String :=
   match src.splitOn ":=" with
   | _ :: rest@(_ :: _) =>
@@ -104,7 +81,6 @@ private def afterAssign (src : String) : Option String :=
     if t.isEmpty then none else some t
   | _ => none
 
-/-- The term a fact was obtained from: the `h` of `obtain .. := h` or `cases h`. -/
 private def originOf (c : Ctx) (s : Step) (name : String) : Option String :=
   (afterAssign (s.source c.input)).orElse fun _ =>
     if name == "cases" || name == "rcases" || name == "obtain" then majorPremise c s else none
@@ -112,7 +88,6 @@ private def originOf (c : Ctx) (s : Step) (name : String) : Option String :=
 private def isNew (old : List HypView) (h : HypView) : Bool :=
   !(old.any fun o => o.name == h.name && o.type == h.type)
 
-/-- Emit "Let ... be ..." and "Assume ..." for a batch of new hypotheses. -/
 private def announce (c : Ctx) (hyps : List HypView) (k : Sink) : Sink :=
   let ph := c.ph
   let (props, objects) := hyps.partition (·.isProp)
@@ -124,10 +99,6 @@ private def announce (c : Ctx) (hyps : List HypView) (k : Sink) : Sink :=
   if props.isEmpty then k
   else k.say (ph.assume (props.map fun h => { name := some h.name, stmt := h.prose }))
 
-/--
-What a tactic did, decided once here rather than in each phrasebook: the
-categories are a fact about Lean, only their wording is a fact about English.
--/
 private def howKind (name : String) : HowKind :=
   if name == "rw" || name == "rewrite" || name == "erw" then .rewrite
   else if name.startsWith "simp" || name == "dsimp" then .simplify
@@ -135,37 +106,28 @@ private def howKind (name : String) : HowKind :=
   else if name == "refine" || name == "apply" || name == "exact" then .apply
   else .other name
 
-/-- Tactics whose job is to reshape the goal rather than to justify it. -/
 private def transforms (kind : HowKind) : Bool :=
   match kind with
   | .rewrite | .simplify | .unfold => true
   | _ => false
 
-/--
-Why a goal holds.  `exact`/`apply` justify themselves — their argument *is* the
-reason — so that rule lives here with the rest of the tactic knowledge.
--/
 private def reasonFor (ph : Phrases) (name : String) (args : Option String) : Option String :=
   (List.lookup name ph.reasons).orElse fun _ =>
     if name == "exact" || name == "apply" then args else none
 
-/-- The justification written after `:=`, as in `have h : P := foo`. -/
 private def justification (c : Ctx) (s : Step) (name : String) : Option String :=
   if name == "have" || name == "suffices" || name == "replace" then
     (afterAssign (s.source c.input)).filter fun t => !t.startsWith "by"
   else none
 
-/-- Every node of `stx` satisfying `p`, outermost first. -/
 private partial def findAll (p : Syntax → Bool) (stx : Syntax) : List Syntax :=
   (if p stx then [stx] else []) ++ stx.getArgs.toList.flatMap (findAll p)
 
 private def sourceOf (c : Ctx) (stx : Syntax) : String :=
   (textAt c.input stx).replace "\n" " "
 
-/-- Relation symbols a `calc` chain may be built from.  Each is one codepoint. -/
 private def relations : String := "↔≠≤≥⊆≡∣∈=<>"
 
-/-- Split `a ≤ b` into its two sides, ignoring anything inside brackets. -/
 private def splitRelation (src : String) : String × String × String :=
   let rec go (cs : List Char) (seen : List Char) (depth : Nat) : Option (String × String × String) :=
     match cs with
@@ -182,7 +144,6 @@ private def splitRelation (src : String) : String × String × String :=
   | some (l, op, r) => (l.trim, op, r.trim)
   | none => (src.trim, "", "")
 
-/-- Lay a `calc` chain out as a displayed computation. -/
 private def calcBlock (c : Ctx) (s : Step) (k : Sink) : Sink :=
   let ph := c.ph
   let steps := findAll (fun n =>
@@ -199,7 +160,6 @@ private def calcBlock (c : Ctx) (s : Step) (k : Sink) : Sink :=
   if lines.isEmpty then k.say (ph.verbatim (s.source c.input))
   else (k.say ph.computation).block ph (.calcBlock lines)
 
-/-- The witness supplied by `refine ⟨w, ?_⟩`, `exact ⟨w, _⟩` or `use w`. -/
 private def witnessOf (c : Ctx) (s : Step) : Option String :=
   match tacticArgs c s with
   | some a => firstComponent a
@@ -208,33 +168,17 @@ private def witnessOf (c : Ctx) (s : Step) : Option String :=
 private def stateGoal (c : Ctx) (g : GoalView) (k : Sink) : Sink :=
   k.say (if g.targetIsFalse then c.ph.mustShowFalse else c.ph.mustShow g.targetProse)
 
-/-! ## The walk -/
-
-/--
-What the children of a step are: a combinator carrying on with the same goal,
-a side proof of a fact the step introduced, or the bodies of the branches the
-step produced.
--/
 private inductive Nesting where
   | leaf
   | inline
   | subproof
   | branches (groups : List (String × List Step))
 
-/-- Group consecutive steps that work on the same goal. -/
 private def groupByGoal (steps : List Step) : List (List Step) :=
   steps.splitBy fun a b => a.info.goalsBefore.head? == b.info.goalsBefore.head?
 
 mutual
 
-/--
-Classify a step's children by the goals they work on.
-
-Children that keep working on their parent's own goal belong to a combinator
-(`first`, `all_goals`, `try`).  Children proving a goal whose statement is the
-hypothesis their parent introduced are a side proof (`have h : P := by ...`).
-Anything else is a branch body, grouped by the case tag Lean assigned it.
--/
 private partial def classify (c : Ctx) (s : Step) (fresh : List HypView) (produced : Nat) :
     IO Nesting := do
   if s.children.isEmpty then return .leaf
@@ -275,9 +219,6 @@ private partial def narrateStep (c : Ctx) (s : Step) (k : Sink) : IO Sink := do
       return k.block ph (.nested none (body.finish ph))
     match ← classify c s fresh produced with
     | .inline =>
-      -- A combinator such as `first`, `all_goals` or `<;>`: the children are
-      -- the proof.  When they span several goals, give each one its own block
-      -- so the reader can tell which claim is being settled.
       let groups := groupByGoal s.children
       if groups.length ≤ 1 then narrate c s.children k
       else
@@ -288,7 +229,6 @@ private partial def narrateStep (c : Ctx) (s : Step) (k : Sink) : IO Sink := do
           | none => pure ()
           | some first =>
             if first.info.goalsBefore.head? == parent then
-              -- Still the goal we were given: `t` of `t <;> t'`.
               k ← narrate c grp k
             else
               let head := match ← beforeView ph first with
@@ -304,7 +244,6 @@ private partial def narrateStep (c : Ctx) (s : Step) (k : Sink) : IO Sink := do
       match reasonFor ph name args with
       | some why => pure (k.say (ph.closedBy why))
       | none =>
-        -- A transformer such as `rw` or `simp` that happened to finish the goal.
         if transforms kind then pure (k.say (ph.closedByHow (ph.how kind args)))
         else pure (k.say (ph.closedBy s!"`{s.source c.input}`"))
     else if produced == 1 then
@@ -313,7 +252,6 @@ private partial def narrateStep (c : Ctx) (s : Step) (k : Sink) : IO Sink := do
       | some a =>
         let (facts, objects) := fresh.partition (·.isProp)
         if !fresh.isEmpty && a.target == g.target then
-          -- Facts were obtained without changing what has to be shown.
           if !objects.isEmpty then
             pure (k.say (ph.obtainFrom (objects.map (·.name))
               (facts.map fun h => { name := some h.name, stmt := h.prose })
@@ -325,7 +263,6 @@ private partial def narrateStep (c : Ctx) (s : Step) (k : Sink) : IO Sink := do
         else if !fresh.isEmpty then
           pure (stateGoal c a (announce c fresh k))
         else if a.target != g.target then
-          -- Supplying a witness for an existential reads as a choice, not a rewrite.
           match (if g.targetIsExists && !a.targetIsExists then witnessOf c s else none) with
           | some w => pure ((k.say (ph.chooseWitness w)).say (ph.remainsToShow a.targetProse))
           | none => pure (k.say (ph.transformedBy (ph.how kind args) a.targetProse))
@@ -365,7 +302,6 @@ private partial def narrateBranching (c : Ctx) (s : Step) (g : GoalView) (isIndu
         k := k.block ph (.nested label (body.finish ph))
   pure k
 
-/-- A step that introduced a fact and whose children prove it, e.g. `have := by ...`. -/
 private partial def narrateSideProof (c : Ctx) (s : Step) (fresh : List HypView) (k : Sink) :
     IO Sink := do
   let ph := c.ph
@@ -378,8 +314,6 @@ private partial def narrateSideProof (c : Ctx) (s : Step) (fresh : List HypView)
 
 end
 
-/-! ## Declarations -/
-
 private def declKeyword (stx : Syntax) : String :=
   if (stx.find? (·.isOfKind ``Lean.Parser.Command.example)).isSome then "example"
   else if (stx.find? (·.isOfKind ``Lean.Parser.Command.definition)).isSome then "def"
@@ -389,7 +323,6 @@ private def declKeyword (stx : Syntax) : String :=
 private def declName (stx : Syntax) : Option String :=
   (stx.find? (·.isOfKind ``Lean.Parser.Command.declId)).map fun d => d[0].getId.toString
 
-/-- Render one declaration: heading, restated statement, proof, box. -/
 private def renderDeclaration (c : Ctx) (stx : Syntax) (steps : List Step) : IO (List Block) := do
   let ph := c.ph
   let mut k : Sink := default
@@ -410,7 +343,6 @@ private def renderDeclaration (c : Ctx) (stx : Syntax) (steps : List Step) : IO 
       k := k.block ph (.qed ph.qed)
       pure (k.finish ph)
 
-/-- Find each declaration in a tree, together with the steps of its proof. -/
 partial def declarationsOf (t : InfoTree) : List (Syntax × List Step) :=
   match t with
   | .context _ t' => declarationsOf t'
@@ -423,7 +355,6 @@ partial def declarationsOf (t : InfoTree) : List (Syntax × List Step) :=
       else cs.toList.flatMap declarationsOf
     | _ => cs.toList.flatMap declarationsOf
 
-/-- Render every declaration of an elaborated file. -/
 def renderElaborated (e : Elaborated) (opts : Options := {}) : IO (List Block) := do
   let c : Ctx := { ph := phrasesFor opts.lang, input := e.input, restate := opts.statement }
   let mut out : List Block := []
@@ -431,7 +362,6 @@ def renderElaborated (e : Elaborated) (opts : Options := {}) : IO (List Block) :
     out := out ++ (← renderDeclaration c stx steps)
   pure out
 
-/-- Elaborate `path` and print its proofs. -/
 def printFile (path : System.FilePath) (opts : Options := {}) : IO String := do
   let e ← elaborateFile path
   let blocks ← renderElaborated e opts

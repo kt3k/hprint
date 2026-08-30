@@ -1,16 +1,7 @@
-/-!
-# Output documents
-
-The renderer produces a tree of `Block`s; the writers here turn that tree into
-plain text, Markdown or LaTeX.  Keeping them apart means the prose logic never
-has to think about indentation or escaping.
--/
-
 namespace HPrint
 
-/-- One line of a displayed computation (`calc`). -/
 structure CalcLine where
-  /-- Empty on continuation lines, which line up under the previous result. -/
+
   lhs : String := ""
   op : String
   rhs : String
@@ -19,19 +10,13 @@ structure CalcLine where
 
 inductive Block where
   | heading (text : String)
-  /-- The restated theorem, set off from the proof. -/
   | statement (text : String)
   | para (text : String)
-  /-- An indented sub-proof: a case, a bullet, the proof of a `have`. -/
   | nested (title : Option String) (body : List Block)
   | calcBlock (lines : List CalcLine)
-  /-- The end-of-proof marker. -/
   | qed (text : String)
   deriving Inhabited
 
-/-! ## Widths and wrapping -/
-
-/-- East Asian wide characters occupy two terminal columns. -/
 def isWide (c : Char) : Bool :=
   let v := c.toNat
   (0x1100 ≤ v && v ≤ 0x115F) ||
@@ -43,18 +28,12 @@ def isWide (c : Char) : Bool :=
   (0xFFE0 ≤ v && v ≤ 0xFFE6) ||
   (0x20000 ≤ v && v ≤ 0x3FFFD)
 
-/-- Display width in terminal columns. -/
 def dispWidth (s : String) : Nat :=
   s.foldl (fun n c => n + if isWide c then 2 else 1) 0
 
-/-- Japanese punctuation that must not start a line. -/
 def isClosing (c : Char) : Bool :=
   "。、）」』】〉》，．".contains c
 
-/--
-Split `s` into pieces after which a line break is allowed: after a space, and
-between wide characters, which is what wrapping Japanese prose needs.
--/
 def segments (s : String) : List String :=
   let rec go (cs : List Char) (cur : List Char) (acc : List String) : List String :=
     match cs with
@@ -67,7 +46,6 @@ def segments (s : String) : List String :=
       else go rest cur acc
   go s.toList [] []
 
-/-- Wrap `text` to at most `max` display columns. -/
 def wrapText (text : String) (max : Nat) : List String :=
   let step := fun (acc : List String × String) (chunk : String) =>
     let (lines, cur) := acc
@@ -81,14 +59,11 @@ def wrapText (text : String) (max : Nat) : List String :=
   | [] => [""]
   | ls => ls
 
-/-! ## Writers -/
-
 private def indent (n : Nat) : String := "".pushn ' ' n
 
 private def padTo (s : String) (n : Nat) : String :=
   s ++ indent (n - dispWidth s)
 
-/-- Lay a computation out with its relation symbols aligned. -/
 private def calcLines (ls : List CalcLine) (pad : String) : List String :=
   let lhsW := ls.foldl (fun n l => Nat.max n (dispWidth l.lhs)) 0
   let opW := ls.foldl (fun n l => Nat.max n (dispWidth l.op)) 0
@@ -115,7 +90,6 @@ private def squeeze (ls : List String) : List String :=
     | a :: _ => if l.isEmpty && a.isEmpty then acc else l :: acc
     | [] => if l.isEmpty then [] else [l]) []
 
-/-- Drop blank runs and the leading blank, then join into a finished document. -/
 private def assemble (ls : List String) : String :=
   let ls := squeeze ls
   String.intercalate "\n" (match ls with | "" :: rest => rest | _ => ls) ++ "\n"
@@ -150,7 +124,6 @@ private partial def latexOf (bs : List Block) : List String :=
   match bs with
   | [] => []
   | .nested _ _ :: _ =>
-    -- Consecutive cases belong in one list.
     let (cases, rest) := bs.span fun b => match b with | .nested _ _ => true | _ => false
     ["\\begin{itemize}"] ++ cases.flatMap (fun b =>
       match b with

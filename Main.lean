@@ -1,13 +1,5 @@
 import HPrint
 
-/-!
-Command line entry point.
-
-hprint elaborates the files it is given, so it needs to be able to find their
-imports.  Run it inside a Lake project (`lake env hprint Foo.lean`) when the
-proofs depend on a library.
--/
-
 open HPrint
 
 private def version := "0.1.0"
@@ -89,8 +81,6 @@ def main (argv : List String) : IO UInt32 := do
       unless first do IO.println ""
       first := false
       let e ← elaborateFile file
-      -- Elaboration errors mean the goals we would narrate are not the real
-      -- ones, so say so rather than printing a confident but wrong proof.
       for msg in e.errors do
         IO.eprintln s!"hprint: {file}: {msg}"
         status := 1

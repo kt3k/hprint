@@ -1,16 +1,5 @@
 import HPrint
 
-/-!
-The test suite has two halves.
-
-*Unit checks* pin down the layout engine: widths, wrapping and the writers.
-
-*Golden checks* render every file in `examples/` in both languages and compare
-against the recorded output in `test/golden/`.  They are the real regression
-net for the prose: any change to the narration shows up as a diff you have to
-look at and accept with `lake test -- --update`.
--/
-
 open HPrint
 
 private structure Report where
@@ -23,8 +12,6 @@ private def Report.check (r : Report) (name : String) (ok : Bool) : Report :=
 private def Report.eq [BEq α] [ToString α] (r : Report) (name : String) (actual expected : α) :
     Report :=
   r.check s!"{name}: got {actual}, expected {expected}" (actual == expected)
-
-/-! ## Unit checks -/
 
 private def unitChecks : Report :=
   let r : Report := {}
@@ -56,8 +43,6 @@ private def unitChecks : Report :=
   let r := r.check "latex groups consecutive cases"
       ((tex2.splitOn "\\begin{itemize}").length == 2)
   r
-
-/-! ## Golden checks -/
 
 private def goldenPath (base lang : String) : System.FilePath :=
   System.mkFilePath ["test", "golden", s!"{base}.{lang}.txt"]
