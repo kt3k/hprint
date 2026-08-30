@@ -11,7 +11,6 @@ USAGE:
   hprint [OPTIONS] FILE...
 
 OPTIONS:
-  -l, --lang <en|ja>                  Output language               (default: en)
   -f, --format <text|markdown|latex>  Output format                 (default: text)
   -w, --width <n>                     Line width for text output    (default: 76)
       --no-statement                  Omit the restated theorem
@@ -43,8 +42,6 @@ where
     match a with
     | "-h" | "--help" => .ok { acc with help := true }
     | "-V" | "--version" => .ok { acc with showVersion := true }
-    | "-l" | "--lang" => needValue fun v acc =>
-        .ok { acc with opts := { acc.opts with lang := v } }
     | "-f" | "--format" => needValue fun v acc =>
         match v with
         | "text" => .ok { acc with opts := { acc.opts with format := .text } }

@@ -49,7 +49,6 @@ lake build
 ```
 hprint [OPTIONS] FILE...
 
-  -l, --lang <en|ja>                    Output language      (default: en)
   -f, --format <text|markdown|latex>    Output format        (default: text)
   -w, --width <n>                       Line width for text  (default: 76)
       --no-statement                    Omit the restated theorem
@@ -66,30 +65,13 @@ If the file does not elaborate, the errors go to stderr and the exit status is
 non-zero. `hprint` still prints what it can, but the goals it narrates are no
 longer the ones you meant.
 
-Japanese output is built in:
-
-```
-$ hprint --lang ja examples/induction.lean
-定理（zero_add'）.
-  任意の自然数 n に対して 0 + n = n。
-
-証明.
-n を自然数とする。示すべきことは 0 + n = n である。自然数 n に関する帰納法で
-示す。
-
-基底の場合（zero）.
-  示すべきことは 0 + 0 = 0 である。これは両辺が同一であることにより成り立
-  つ。
-...
-```
-
 ## As a library
 
 ```lean
 import HPrint
 open HPrint
 
-#eval do IO.print (← printFile "examples/induction.lean" { lang := "ja" })
+#eval do IO.print (← printFile "examples/induction.lean" { width := 100 })
 ```
 
 `elaborateFile` gives you the info trees, `renderElaborated` the block tree,
@@ -142,8 +124,8 @@ stays small while covering tactics it has never heard of: an unknown tactic
 still has a goal before and after it, and that is what gets described.
 
 Every sentence comes from a `Phrases` vocabulary (`HPrint/Phrases.lean`); the
-proof-walking code never concatenates prose itself. A new language is one value
-of that structure.
+proof-walking code never concatenates prose itself, so the wording can be
+changed — or another language added — without touching the walk.
 
 ## Development
 
@@ -153,10 +135,10 @@ lake test                 # unit checks + golden output for every example
 lake test -- --update     # accept new golden output after a deliberate change
 ```
 
-The golden files in `test/golden/` hold the rendered form of every example in
-both languages, so any change to the narration shows up as a diff you have to
-look at. The suite also asserts that every example elaborates cleanly and that
-no line exceeds the requested width.
+The golden files in `test/golden/` hold the rendered form of every example, so
+any change to the narration shows up as a diff you have to look at. The suite
+also asserts that every example elaborates cleanly and that no line exceeds the
+requested width.
 
 ## Limitations
 

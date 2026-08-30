@@ -6,7 +6,6 @@ open Lean Elab
 namespace HPrint
 
 structure Options where
-  lang : String := "en"
   statement : Bool := true
   width : Nat := 76
   format : OutFormat := .text
@@ -356,7 +355,7 @@ partial def declarationsOf (t : InfoTree) : List (Syntax × List Step) :=
     | _ => cs.toList.flatMap declarationsOf
 
 def renderElaborated (e : Elaborated) (opts : Options := {}) : IO (List Block) := do
-  let c : Ctx := { ph := phrasesFor opts.lang, input := e.input, restate := opts.statement }
+  let c : Ctx := { ph := en, input := e.input, restate := opts.statement }
   let mut out : List Block := []
   for (stx, steps) in e.trees.flatMap declarationsOf do
     out := out ++ (← renderDeclaration c stx steps)

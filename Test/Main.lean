@@ -44,8 +44,8 @@ private def unitChecks : Report :=
       ((tex2.splitOn "\\begin{itemize}").length == 2)
   r
 
-private def goldenPath (base lang : String) : System.FilePath :=
-  System.mkFilePath ["test", "golden", s!"{base}.{lang}.txt"]
+private def goldenPath (base : String) : System.FilePath :=
+  System.mkFilePath ["test", "golden", s!"{base}.txt"]
 
 private def exampleFiles : IO (Array System.FilePath) := do
   let entries ← System.FilePath.readDir "examples"
@@ -62,26 +62,25 @@ private def goldenChecks (update : Bool) (r : Report) : IO Report := do
     r := r.check s!"{base} elaborates without errors" errors.isEmpty
     for msg in errors do
       IO.eprintln s!"  {base}: {msg}"
-    for lang in ["en", "ja"] do
-      let blocks ← renderElaborated e { lang, width := 76 }
-      let actual := renderBlocks .text 76 blocks
-      r := r.check s!"{base} ({lang}) produces a proof" ((actual.splitOn "∎").length ≥ 2)
-      for line in actual.splitOn "\n" do
-        if dispWidth line > 76 then
-          r := r.check s!"{base} ({lang}) line too wide: {line}" false
-      let path := goldenPath base lang
-      if update then
-        IO.FS.writeFile path actual
-      else if ← path.pathExists then
-        let expected ← IO.FS.readFile path
-        if actual != expected then
-          IO.eprintln s!"--- {path} differs; rerun with `lake test -- --update` to accept"
-          IO.eprintln actual
-          r := r.check s!"{base} ({lang}) matches golden output" false
-        else r := r.check s!"{base} ({lang}) matches golden output" true
-      else
-        IO.eprintln s!"missing golden file {path}; run `lake test -- --update`"
-        r := r.check s!"{base} ({lang}) has a golden file" false
+    let blocks ← renderElaborated e { width := 76 }
+    let actual := renderBlocks .text 76 blocks
+    r := r.check s!"{base} produces a proof" ((actual.splitOn "∎").length ≥ 2)
+    for line in actual.splitOn "\n" do
+      if dispWidth line > 76 then
+        r := r.check s!"{base} line too wide: {line}" false
+    let path := goldenPath base
+    if update then
+      IO.FS.writeFile path actual
+    else if ← path.pathExists then
+      let expected ← IO.FS.readFile path
+      if actual != expected then
+        IO.eprintln s!"--- {path} differs; rerun with `lake test -- --update` to accept"
+        IO.eprintln actual
+        r := r.check s!"{base} matches golden output" false
+      else r := r.check s!"{base} matches golden output" true
+    else
+      IO.eprintln s!"missing golden file {path}; run `lake test -- --update`"
+      r := r.check s!"{base} has a golden file" false
   pure r
 
 def main (args : List String) : IO UInt32 := do
