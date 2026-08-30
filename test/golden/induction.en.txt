@@ -1,0 +1,16 @@
+Theorem (zero_add').
+  For all natural numbers n, 0 + n = n.
+
+Proof.
+Let n be a natural number. We must show that 0 + n = n. We argue by
+induction on the natural number n.
+
+Base case (zero).
+  We must show that 0 + 0 = 0. This holds by reflexivity.
+
+Inductive step (succ).
+  Let k be a natural number. By the induction hypothesis ih we may assume
+  that 0 + k = k. We must show that 0 + (k + 1) = k + 1. Rewriting with
+  Nat.add_succ and ih, we are done.
+
+∎

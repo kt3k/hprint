@@ -1,0 +1,31 @@
+Theorem (exists_gt).
+  For all natural numbers n, there is a natural number m such that n < m.
+
+Proof.
+Let n be a natural number. We must show that there is a natural number m
+such that n < m. Take n + 1 as the witness. It remains to show that n < n +
+1. This holds by linear arithmetic.
+
+∎
+
+Theorem (double_of_even).
+  For all natural numbers n, if there is a natural number k such that n = 2
+  * k, then there is a natural number m such that n + n = 2 * m.
+
+Proof.
+Let n be a natural number. Assume there is a natural number k such that n =
+2 * k (call this h). We must show that there is a natural number m such
+that n + n = 2 * m. From h we obtain k such that n = 2 * k. Take n as the
+witness. It remains to show that n + n = 2 * n. This holds by linear
+arithmetic.
+
+∎
+
+Theorem (le_of_have).
+  For all natural numbers a and b, if a = b, then b = a.
+
+Proof.
+Let a and b be natural numbers. Assume a = b (call this hab). We must show
+that b = a. By hab, we have a = b (call this h). This holds by h.symm.
+
+∎
