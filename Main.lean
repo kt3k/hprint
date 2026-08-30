@@ -91,10 +91,9 @@ def main (argv : List String) : IO UInt32 := do
       let e ← elaborateFile file
       -- Elaboration errors mean the goals we would narrate are not the real
       -- ones, so say so rather than printing a confident but wrong proof.
-      for (isError, msg) in e.messages do
-        if isError then
-          IO.eprintln s!"hprint: {file}: {msg}"
-          status := 1
+      for msg in e.errors do
+        IO.eprintln s!"hprint: {file}: {msg}"
+        status := 1
       let blocks ← renderElaborated e args.opts
       IO.print (renderBlocks args.opts.format args.opts.width blocks)
     pure status

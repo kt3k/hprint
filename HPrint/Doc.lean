@@ -15,7 +15,7 @@ structure CalcLine where
   op : String
   rhs : String
   reason : Option String := none
-  deriving Inhabited, Repr
+  deriving Inhabited
 
 inductive Block where
   | heading (text : String)
@@ -27,7 +27,7 @@ inductive Block where
   | calcBlock (lines : List CalcLine)
   /-- The end-of-proof marker. -/
   | qed (text : String)
-  deriving Inhabited, Repr
+  deriving Inhabited
 
 /-! ## Widths and wrapping -/
 
@@ -49,7 +49,7 @@ def dispWidth (s : String) : Nat :=
 
 /-- Japanese punctuation that must not start a line. -/
 def isClosing (c : Char) : Bool :=
-  "。、）」』】〉》，．".any (· == c)
+  "。、）」』】〉》，．".contains c
 
 /--
 Split `s` into pieces after which a line break is allowed: after a space, and
@@ -83,7 +83,7 @@ def wrapText (text : String) (max : Nat) : List String :=
 
 /-! ## Writers -/
 
-private def indent (n : Nat) : String := String.mk (List.replicate n ' ')
+private def indent (n : Nat) : String := "".pushn ' ' n
 
 private def padTo (s : String) (n : Nat) : String :=
   s ++ indent (n - dispWidth s)
@@ -115,10 +115,12 @@ private def squeeze (ls : List String) : List String :=
     | a :: _ => if l.isEmpty && a.isEmpty then acc else l :: acc
     | [] => if l.isEmpty then [] else [l]) []
 
-def toText (bs : List Block) (width : Nat := 76) : String :=
-  let ls := squeeze (textOf bs 0 width)
-  let ls := match ls with | "" :: rest => rest | _ => ls
-  String.intercalate "\n" ls ++ "\n"
+/-- Drop blank runs and the leading blank, then join into a finished document. -/
+private def assemble (ls : List String) : String :=
+  let ls := squeeze ls
+  String.intercalate "\n" (match ls with | "" :: rest => rest | _ => ls) ++ "\n"
+
+def toText (bs : List Block) (width : Nat := 76) : String := assemble (textOf bs 0 width)
 
 private partial def markdownOf (bs : List Block) (depth : Nat) : List String :=
   bs.flatMap fun b =>
@@ -133,10 +135,7 @@ private partial def markdownOf (bs : List Block) (depth : Nat) : List String :=
       (match title with | some t => [pad ++ "- **" ++ t ++ "**", ""] | none => [])
         ++ markdownOf body (depth + 1)
 
-def toMarkdown (bs : List Block) : String :=
-  let ls := squeeze (markdownOf bs 0)
-  let ls := match ls with | "" :: rest => rest | _ => ls
-  String.intercalate "\n" ls ++ "\n"
+def toMarkdown (bs : List Block) : String := assemble (markdownOf bs 0)
 
 private def escapeTex (s : String) : String :=
   s.foldl (fun acc c =>
@@ -174,10 +173,7 @@ private partial def latexOf (bs : List Block) : List String :=
            ++ reason ++ " \\\\") ++ ["\\end{align*}"]
      | .nested _ _ => []) ++ latexOf rest
 
-def toLatex (bs : List Block) : String :=
-  let ls := squeeze (latexOf bs)
-  let ls := match ls with | "" :: rest => rest | _ => ls
-  String.intercalate "\n" ls ++ "\n"
+def toLatex (bs : List Block) : String := assemble (latexOf bs)
 
 inductive OutFormat where
   | text | markdown | latex

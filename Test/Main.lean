@@ -22,8 +22,7 @@ private def Report.check (r : Report) (name : String) (ok : Bool) : Report :=
 
 private def Report.eq [BEq α] [ToString α] (r : Report) (name : String) (actual expected : α) :
     Report :=
-  if actual == expected then { r with passed := r.passed + 1 }
-  else { r with failed := r.failed.push s!"{name}: got {actual}, expected {expected}" }
+  r.check s!"{name}: got {actual}, expected {expected}" (actual == expected)
 
 /-! ## Unit checks -/
 
@@ -66,7 +65,7 @@ private def goldenPath (base lang : String) : System.FilePath :=
 private def exampleFiles : IO (Array System.FilePath) := do
   let entries ← System.FilePath.readDir "examples"
   let files := entries.filterMap fun e =>
-    if e.fileName.endsWith ".lean" then some e.path else none
+    if e.path.extension == some "lean" then some e.path else none
   pure (files.qsort fun a b => a.toString < b.toString)
 
 private def goldenChecks (update : Bool) (r : Report) : IO Report := do
@@ -74,9 +73,9 @@ private def goldenChecks (update : Bool) (r : Report) : IO Report := do
   for file in ← exampleFiles do
     let base := (file.fileStem).getD "?"
     let e ← elaborateFile file
-    let errors := e.messages.filter (·.1)
+    let errors := e.errors
     r := r.check s!"{base} elaborates without errors" errors.isEmpty
-    for (_, msg) in errors do
+    for msg in errors do
       IO.eprintln s!"  {base}: {msg}"
     for lang in ["en", "ja"] do
       let blocks ← renderElaborated e { lang, width := 76 }

@@ -26,7 +26,8 @@ structure Options where
 private structure Ctx where
   ph : Phrases
   input : String
-  opts : Options
+  /-- Whether to restate the theorem before its proof. -/
+  restate : Bool
 
 /-- Collects sentences into paragraphs so the output reads as prose. -/
 private structure Sink where
@@ -37,7 +38,8 @@ private structure Sink where
 namespace Sink
 
 def say (k : Sink) (s : String) : Sink :=
-  if s.trim.isEmpty then k else { k with pending := k.pending.push s.trim }
+  let s := s.trim
+  if s.isEmpty then k else { k with pending := k.pending.push s }
 
 def flush (k : Sink) (ph : Phrases) : Sink :=
   if k.pending.isEmpty then k
@@ -45,7 +47,8 @@ def flush (k : Sink) (ph : Phrases) : Sink :=
          pending := #[] }
 
 def block (k : Sink) (ph : Phrases) (b : Block) : Sink :=
-  { k.flush ph with blocks := (k.flush ph).blocks.push b }
+  let k := k.flush ph
+  { k with blocks := k.blocks.push b }
 
 def finish (k : Sink) (ph : Phrases) : List Block := (k.flush ph).blocks.toList
 
@@ -63,49 +66,48 @@ private def tacticArgs (c : Ctx) (s : Step) : Option String :=
   let rest := ((src.drop (tacticName c s).length).trim).replace "\n" " "
   if rest.isEmpty then none else some rest
 
-/-- Split on the top-level commas of `⟨a, b, c⟩`. -/
-private def components (src : String) : List String :=
+/-- The first component of `⟨a, b⟩`: the witness, when there is one. -/
+private def firstComponent (src : String) : Option String :=
   let s := src.trim
-  if !(s.startsWith "⟨") then [s] else
-    let inner := (s.toList.drop 1).dropLast
-    let step := fun (acc : List String × List Char × Nat) (ch : Char) =>
-      let (done, cur, depth) := acc
-      if ch == ',' && depth == 0 then (done ++ [String.mk cur.reverse], [], depth)
-      else
-        let depth :=
-          if "⟨([".any (· == ch) then depth + 1
-          else if "⟩)]".any (· == ch) then depth - 1
-          else depth
-        (done, ch :: cur, depth)
-    let (done, cur, _) := inner.foldl step ([], [], 0)
-    (done ++ [String.mk cur.reverse]).map (·.trim) |>.filter (!·.isEmpty)
+  if !(s.startsWith "⟨") then none else
+    let stop := fun (acc : List Char × Nat × Bool) (ch : Char) =>
+      let (cur, depth, stopped) := acc
+      if stopped then acc
+      else if ch == ',' && depth == 0 then (cur, depth, true)
+      else if "⟨([".contains ch then (ch :: cur, depth + 1, false)
+      else if "⟩)]".contains ch then (ch :: cur, depth - 1, false)
+      else (ch :: cur, depth, false)
+    let (cur, _, _) := (s.drop 1 |>.dropRight 1).toList.foldl stop ([], 0, false)
+    let w := (String.mk cur.reverse).trim
+    if w.isEmpty then none else some w
 
 /-- Turn `[a, b]` into a readable list, leaving anything else alone. -/
 private def prettyArgs (ph : Phrases) (args : Option String) : Option String :=
   args.map fun a =>
     let a := a.trim
     if a.startsWith "[" && a.endsWith "]" then
-      ph.list (((a.toList.drop 1).dropLast |> String.mk).splitOn "," |>.map (·.trim)
-        |>.filter (!·.isEmpty))
+      ph.list ((a.drop 1 |>.dropRight 1).splitOn "," |>.map (·.trim) |>.filter (!·.isEmpty))
     else a
 
 /-- Source text of the tactic's first argument, e.g. `n` in `induction n with ...`. -/
 private def majorPremise (c : Ctx) (s : Step) : Option String :=
-  match s.stx[1].getPos?, s.stx[1].getTailPos? with
-  | some a, some b =>
-    let t := (Substring.mk c.input a b).toString.trim
-    if t.isEmpty then none else some t
-  | _, _ => none
+  let t := textAt c.input s.stx[1]
+  if t.isEmpty then none else some t
 
 /-! ## Introducing hypotheses -/
 
+/-- Whatever a tactic assigns after `:=`, as one line. -/
+private def afterAssign (src : String) : Option String :=
+  match src.splitOn ":=" with
+  | _ :: rest@(_ :: _) =>
+    let t := ((String.intercalate ":=" rest).trim).replace "\n" " "
+    if t.isEmpty then none else some t
+  | _ => none
+
 /-- The term a fact was obtained from: the `h` of `obtain .. := h` or `cases h`. -/
 private def originOf (c : Ctx) (s : Step) (name : String) : Option String :=
-  let src := s.source c.input
-  match src.splitOn ":=" with
-  | _ :: rest@(_ :: _) => some (String.intercalate ":=" rest).trim
-  | _ => if name == "cases" || name == "rcases" || name == "obtain" then majorPremise c s
-         else none
+  (afterAssign (s.source c.input)).orElse fun _ =>
+    if name == "cases" || name == "rcases" || name == "obtain" then majorPremise c s else none
 
 private def isNew (old : List HypView) (h : HypView) : Bool :=
   !(old.any fun o => o.name == h.name && o.type == h.type)
@@ -113,34 +115,44 @@ private def isNew (old : List HypView) (h : HypView) : Bool :=
 /-- Emit "Let ... be ..." and "Assume ..." for a batch of new hypotheses. -/
 private def announce (c : Ctx) (hyps : List HypView) (k : Sink) : Sink :=
   let ph := c.ph
-  let objects := hyps.filter fun h => !h.isProp
-  let props := hyps.filter fun h => h.isProp
-  let mk (h : HypView) (form : NounForm) : FixGroup :=
-    { names := [h.name], type := some h.type, noun := ph.typeNoun h.head form }
-  let groups := objects.foldl (fun (acc : List FixGroup) h =>
-    match acc.reverse with
-    | g :: rest =>
-      if g.type == some h.type then
-        ({ g with names := g.names ++ [h.name], noun := (mk h .plural).noun } :: rest).reverse
-      else acc ++ [mk h .article]
-    | [] => [mk h .article]) []
+  let (props, objects) := hyps.partition (·.isProp)
+  let groups := (objects.splitBy fun a b => a.type == b.type).filterMap fun g =>
+    g.head?.map fun h =>
+      { names := g.map (·.name), type := some h.type,
+        noun := ph.typeNoun h.head (if g.length > 1 then .plural else .article) : FixGroup }
   let k := if groups.isEmpty then k else k.say (ph.fix groups)
   if props.isEmpty then k
   else k.say (ph.assume (props.map fun h => { name := some h.name, stmt := h.prose }))
 
+/--
+What a tactic did, decided once here rather than in each phrasebook: the
+categories are a fact about Lean, only their wording is a fact about English.
+-/
+private def howKind (name : String) : HowKind :=
+  if name == "rw" || name == "rewrite" || name == "erw" then .rewrite
+  else if name.startsWith "simp" || name == "dsimp" then .simplify
+  else if name == "unfold" || name == "delta" then .unfold
+  else if name == "refine" || name == "apply" || name == "exact" then .apply
+  else .other name
+
 /-- Tactics whose job is to reshape the goal rather than to justify it. -/
-private def transforms (name : String) : Bool :=
-  name == "rw" || name == "rewrite" || name == "erw" || name == "unfold" || name == "delta"
-    || name.startsWith "simp" || name == "dsimp"
+private def transforms (kind : HowKind) : Bool :=
+  match kind with
+  | .rewrite | .simplify | .unfold => true
+  | _ => false
+
+/--
+Why a goal holds.  `exact`/`apply` justify themselves — their argument *is* the
+reason — so that rule lives here with the rest of the tactic knowledge.
+-/
+private def reasonFor (ph : Phrases) (name : String) (args : Option String) : Option String :=
+  (List.lookup name ph.reasons).orElse fun _ =>
+    if name == "exact" || name == "apply" then args else none
 
 /-- The justification written after `:=`, as in `have h : P := foo`. -/
 private def justification (c : Ctx) (s : Step) (name : String) : Option String :=
   if name == "have" || name == "suffices" || name == "replace" then
-    match (s.source c.input).splitOn ":=" with
-    | _ :: rest@(_ :: _) =>
-      let t := (String.intercalate ":=" rest).trim.replace "\n" " "
-      if t.isEmpty || t.startsWith "by" then none else some t
-    | _ => none
+    (afterAssign (s.source c.input)).filter fun t => !t.startsWith "by"
   else none
 
 /-- Every node of `stx` satisfying `p`, outermost first. -/
@@ -148,13 +160,10 @@ private partial def findAll (p : Syntax → Bool) (stx : Syntax) : List Syntax :
   (if p stx then [stx] else []) ++ stx.getArgs.toList.flatMap (findAll p)
 
 private def sourceOf (c : Ctx) (stx : Syntax) : String :=
-  match stx.getPos?, stx.getTailPos? with
-  | some a, some b => ((Substring.mk c.input a b).toString.trim).replace "\n" " "
-  | _, _ => ""
+  (textAt c.input stx).replace "\n" " "
 
-/-- Relation symbols a `calc` chain may be built from, longest first. -/
-private def relations : List String :=
-  ["↔", "≠", "≤", "≥", "⊆", "≡", "∣", "∈", "=", "<", ">"]
+/-- Relation symbols a `calc` chain may be built from.  Each is one codepoint. -/
+private def relations : String := "↔≠≤≥⊆≡∣∈=<>"
 
 /-- Split `a ≤ b` into its two sides, ignoring anything inside brackets. -/
 private def splitRelation (src : String) : String × String × String :=
@@ -162,15 +171,13 @@ private def splitRelation (src : String) : String × String × String :=
     match cs with
     | [] => none
     | ch :: rest =>
-      let depth' :=
-        if "(⟨[{".any (· == ch) then depth + 1
-        else if ")⟩]}".any (· == ch) then depth - 1
-        else depth
-      let hit := if depth == 0 then relations.find? fun r => r.length == 1 && r.get 0 == ch
-                 else none
-      match hit with
-      | some op => some (String.mk seen.reverse, op, String.mk rest)
-      | none => go rest (ch :: seen) depth'
+      if depth == 0 && relations.contains ch then
+        some (String.mk seen.reverse, ch.toString, String.mk rest)
+      else
+        let depth := if "(⟨[{".contains ch then depth + 1
+          else if ")⟩]}".contains ch then depth - 1
+          else depth
+        go rest (ch :: seen) depth
   match go src.toList [] 0 with
   | some (l, op, r) => (l.trim, op, r.trim)
   | none => (src.trim, "", "")
@@ -195,7 +202,7 @@ private def calcBlock (c : Ctx) (s : Step) (k : Sink) : Sink :=
 /-- The witness supplied by `refine ⟨w, ?_⟩`, `exact ⟨w, _⟩` or `use w`. -/
 private def witnessOf (c : Ctx) (s : Step) : Option String :=
   match tacticArgs c s with
-  | some a => (components a).head?
+  | some a => firstComponent a
   | none => none
 
 private def stateGoal (c : Ctx) (g : GoalView) (k : Sink) : Sink :=
@@ -216,13 +223,7 @@ private inductive Nesting where
 
 /-- Group consecutive steps that work on the same goal. -/
 private def groupByGoal (steps : List Step) : List (List Step) :=
-  steps.foldl (fun acc s =>
-    match acc.reverse with
-    | grp :: rest =>
-      if (grp.head?.bind fun h => h.info.goalsBefore.head?) == s.info.goalsBefore.head? then
-        ((grp ++ [s]) :: rest).reverse
-      else acc ++ [[s]]
-    | [] => [[s]]) []
+  steps.splitBy fun a b => a.info.goalsBefore.head? == b.info.goalsBefore.head?
 
 mutual
 
@@ -242,22 +243,12 @@ private partial def classify (c : Ctx) (s : Step) (fresh : List HypView) (produc
   match s.children.head? with
   | none => return .leaf
   | some first =>
-    let views ← beforeViews c.ph first
     if produced == 1 then
-      if let some cg := views.head? then
+      if let some cg ← beforeView c.ph first then
         if fresh.any fun h => h.type == cg.target then return .subproof
-    let mut groups : List (String × List Step) := []
-    for child in s.children do
-      match child.info.goalsBefore.head? with
-      | none => return .leaf
-      | some g =>
-        let tag ← child.ctx.runMetaM {} do pure (← g.getTag)
-        let tag := (tag.components.getLast?.map (·.toString)).getD ""
-        match groups.reverse with
-        | (t, ss) :: rest =>
-          if t == tag then groups := ((t, ss ++ [child]) :: rest).reverse
-          else groups := groups ++ [(tag, [child])]
-        | [] => groups := [(tag, [child])]
+    if s.children.any fun ch => ch.info.goalsBefore.head?.isNone then return .leaf
+    let groups := (s.children.splitBy fun a b => a.tag == b.tag).filterMap fun g =>
+      g.head?.map fun h => (h.tag, g)
     return .branches groups
 
 private partial def narrate (c : Ctx) (steps : List Step) (k : Sink) : IO Sink := do
@@ -268,16 +259,15 @@ private partial def narrate (c : Ctx) (steps : List Step) (k : Sink) : IO Sink :
 
 private partial def narrateStep (c : Ctx) (s : Step) (k : Sink) : IO Sink := do
   let ph := c.ph
-  let before ← beforeViews ph s
-  let after ← afterViews ph s
   let name := tacticName c s
-  let args := tacticArgs c s
-  match before.head? with
+  let args := prettyArgs ph (tacticArgs c s)
+  let kind := howKind name
+  match ← beforeView ph s with
   | none => pure k
   | some g =>
-    let produced := after.length + 1 - before.length
-    let newGoals := after.take produced
-    let fresh := ((newGoals.head?.map (·.hyps)).getD []).filter (isNew g.hyps)
+    let produced := s.info.goalsAfter.length + 1 - s.info.goalsBefore.length
+    let after? ← if produced == 0 then pure none else afterView ph s
+    let fresh := ((after?.map (·.hyps)).getD []).filter (isNew g.hyps)
     if s.kind == `Lean.calcTactic then
       return calcBlock c s k
     if s.kind == `Lean.cdot then
@@ -301,29 +291,27 @@ private partial def narrateStep (c : Ctx) (s : Step) (k : Sink) : IO Sink := do
               -- Still the goal we were given: `t` of `t <;> t'`.
               k ← narrate c grp k
             else
-              let views ← beforeViews ph first
-              let head := match views.head? with
+              let head := match ← beforeView ph first with
                 | some bg => stateGoal c bg default
                 | none => default
               let body ← narrate c grp head
               k := k.block ph (.nested none (body.finish ph))
         pure k
-    | .subproof => narrateHave c s fresh k
-    | .branches groups => narrateBranching c s g name groups k
+    | .subproof => narrateSideProof c s fresh k
+    | .branches groups => narrateBranching c s g (name == "induction") groups k
     | .leaf =>
     if produced == 0 then
-      match ph.reason name (prettyArgs ph args) with
+      match reasonFor ph name args with
       | some why => pure (k.say (ph.closedBy why))
       | none =>
         -- A transformer such as `rw` or `simp` that happened to finish the goal.
-        if transforms name then pure (k.say (ph.closedByHow (ph.how name (prettyArgs ph args))))
+        if transforms kind then pure (k.say (ph.closedByHow (ph.how kind args)))
         else pure (k.say (ph.closedBy s!"`{s.source c.input}`"))
     else if produced == 1 then
-      match newGoals.head? with
+      match after? with
       | none => pure k
       | some a =>
-        let objects := fresh.filter fun h => !h.isProp
-        let facts := fresh.filter fun h => h.isProp
+        let (facts, objects) := fresh.partition (·.isProp)
         if !fresh.isEmpty && a.target == g.target then
           -- Facts were obtained without changing what has to be shown.
           if !objects.isEmpty then
@@ -331,8 +319,7 @@ private partial def narrateStep (c : Ctx) (s : Step) (k : Sink) : IO Sink := do
               (facts.map fun h => { name := some h.name, stmt := h.prose })
               (originOf c s name)))
           else
-            let why := (ph.reason name (prettyArgs ph args)).orElse fun _ =>
-              justification c s name
+            let why := (reasonFor ph name args).orElse fun _ => justification c s name
             pure (facts.foldl (fun k h =>
               k.say (ph.weHave { name := some h.name, stmt := h.prose } why)) k)
         else if !fresh.isEmpty then
@@ -340,18 +327,16 @@ private partial def narrateStep (c : Ctx) (s : Step) (k : Sink) : IO Sink := do
         else if a.target != g.target then
           -- Supplying a witness for an existential reads as a choice, not a rewrite.
           match (if g.targetIsExists && !a.targetIsExists then witnessOf c s else none) with
-          | some w => pure ((k.say (ph.chooseWitness [w])).say (ph.remainsToShow a.targetProse))
-          | none => pure (k.say (ph.transformedBy (ph.how name (prettyArgs ph args))
-              a.targetProse))
+          | some w => pure ((k.say (ph.chooseWitness w)).say (ph.remainsToShow a.targetProse))
+          | none => pure (k.say (ph.transformedBy (ph.how kind args) a.targetProse))
         else
           pure (k.say (ph.verbatim (s.source c.input)))
     else
       pure (k.say (ph.splitInto produced))
 
-private partial def narrateBranching (c : Ctx) (s : Step) (g : GoalView) (name : String)
+private partial def narrateBranching (c : Ctx) (s : Step) (g : GoalView) (isInduction : Bool)
     (branches : List (String × List Step)) (k : Sink) : IO Sink := do
   let ph := c.ph
-  let isInduction := name == "induction"
   let subject := (majorPremise c s).getD (s.source c.input)
   let noun := (g.hyps.find? fun h => h.name == subject).bind fun h => ph.typeNoun h.head .bare
   let mut k := k.say (if isInduction then ph.inductionOn subject noun else ph.caseAnalysis subject)
@@ -359,13 +344,11 @@ private partial def narrateBranching (c : Ctx) (s : Step) (g : GoalView) (name :
     match steps.head? with
     | none => pure ()
     | some first =>
-      let bviews ← beforeViews ph first
-      match bviews.head? with
+      match ← beforeView ph first with
       | none => pure ()
       | some bg =>
         let fresh := bg.hyps.filter (isNew g.hyps)
-        let objs := fresh.filter fun h => !h.isProp
-        let facts := fresh.filter fun h => h.isProp
+        let (facts, objs) := fresh.partition (·.isProp)
         let mut body : Sink := default
         if !objs.isEmpty then body := announce c objs body
         for h in facts do
@@ -382,7 +365,8 @@ private partial def narrateBranching (c : Ctx) (s : Step) (g : GoalView) (name :
         k := k.block ph (.nested label (body.finish ph))
   pure k
 
-private partial def narrateHave (c : Ctx) (s : Step) (fresh : List HypView) (k : Sink) :
+/-- A step that introduced a fact and whose children prove it, e.g. `have := by ...`. -/
+private partial def narrateSideProof (c : Ctx) (s : Step) (fresh : List HypView) (k : Sink) :
     IO Sink := do
   let ph := c.ph
   let item : Named := match fresh.head? with
@@ -405,11 +389,6 @@ private def declKeyword (stx : Syntax) : String :=
 private def declName (stx : Syntax) : Option String :=
   (stx.find? (·.isOfKind ``Lean.Parser.Command.declId)).map fun d => d[0].getId.toString
 
-private def capitalize (s : String) : String :=
-  match s.toList with
-  | c :: rest => if c.isLower then String.mk (c.toUpper :: rest) else s
-  | [] => s
-
 /-- Render one declaration: heading, restated statement, proof, box. -/
 private def renderDeclaration (c : Ctx) (stx : Syntax) (steps : List Step) : IO (List Block) := do
   let ph := c.ph
@@ -418,12 +397,12 @@ private def renderDeclaration (c : Ctx) (stx : Syntax) (steps : List Step) : IO 
   match steps.head? with
   | none => pure (k.finish ph)
   | some first =>
-    let views ← beforeViews ph first
-    match views.head? with
+    match ← beforeView ph first with
     | none => pure (k.finish ph)
     | some g =>
-      if c.opts.statement then
-        k := k.block ph (.statement (capitalize g.closed ++ ph.period))
+      if c.restate then
+        if let some stmt ← statementOf ph first then
+          k := k.block ph (.statement (stmt.capitalize ++ ph.period))
       k := k.block ph (.heading ph.headingProof)
       if !g.hyps.isEmpty then
         k := stateGoal c g (announce c g.hyps k)
@@ -446,7 +425,7 @@ partial def declarationsOf (t : InfoTree) : List (Syntax × List Step) :=
 
 /-- Render every declaration of an elaborated file. -/
 def renderElaborated (e : Elaborated) (opts : Options := {}) : IO (List Block) := do
-  let c : Ctx := { ph := phrasesFor opts.lang, input := e.input, opts }
+  let c : Ctx := { ph := phrasesFor opts.lang, input := e.input, restate := opts.statement }
   let mut out : List Block := []
   for (stx, steps) in e.trees.flatMap declarationsOf do
     out := out ++ (← renderDeclaration c stx steps)

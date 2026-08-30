@@ -18,6 +18,16 @@ inductive NounForm where
   | plural
   deriving Inhabited, DecidableEq
 
+/-- What a tactic did to the goal.  The renderer decides this; `how` words it. -/
+inductive HowKind where
+  | rewrite
+  | simplify
+  | unfold
+  | apply
+  /-- Anything we have no better name for; carries the tactic's own spelling. -/
+  | other (name : String)
+  deriving Inhabited
+
 /-- A named statement: a hypothesis together with what it says. -/
 structure Named where
   name : Option String := none
@@ -34,7 +44,6 @@ structure FixGroup where
   deriving Inhabited
 
 structure Phrases where
-  id : String
   /-- Inserted between consecutive sentences of a paragraph. -/
   joiner : String
   /-- Sentence-final punctuation. -/
@@ -73,7 +82,7 @@ structure Phrases where
   splitInto : Nat → String
 
   /-- "Take n + 1 as the witness." -/
-  chooseWitness : List String → String
+  chooseWitness : String → String
   /-- "From h we obtain k such that n = 2 * k." -/
   obtainFrom : List String → List Named → Option String → String
 
@@ -82,13 +91,13 @@ structure Phrases where
   /-- "Rewriting with h, we are done." -/
   closedByHow : String → String
   /--
-  A reason phrase for a tactic that finished or transformed a goal, e.g.
-  `omega` becomes "linear arithmetic".  `none` when we have nothing better
-  to say than the tactic's own name.
+  Why a goal holds, keyed by the tactic that closed it: `omega` becomes
+  "linear arithmetic".  A table rather than a function, because choosing
+  *whether* a tactic justifies itself is not a question about language.
   -/
-  reason : String → Option String → Option String
+  reasons : List (String × String)
   /-- How a tactic changed the goal: "Rewriting with h", "Simplifying". -/
-  how : String → Option String → String
+  how : HowKind → Option String → String
   /-- "Rewriting with h, it remains to show that P." -/
   transformedBy : String → String → String
   /-- Header for a displayed computation. -/
@@ -97,7 +106,6 @@ structure Phrases where
   justification : String → String
   /-- A step we could not interpret; the Lean text is quoted. -/
   verbatim : String → String
-  done : String
 
   typeNoun : String → NounForm → Option String
   /-- "for all natural numbers n and m, <body>" -/
@@ -167,7 +175,6 @@ private def reasonsEn : List (String × String) :=
     ("bv_decide", "a bit-vector decision procedure") ]
 
 def en : Phrases where
-  id := "en"
   joiner := " "
   period := "."
   list := joinEn
@@ -222,9 +229,7 @@ def en : Phrases where
     if n == 2 then "We prove the two parts in turn."
     else s!"This leaves {n} things to prove."
 
-  chooseWitness vs :=
-    if vs.length == 1 then s!"Take {joinEn vs} as the witness."
-    else s!"Take {joinEn vs} as the witnesses."
+  chooseWitness w := s!"Take {w} as the witness."
 
   obtainFrom objects facts source :=
     let from_ := match source with
@@ -238,26 +243,19 @@ def en : Phrases where
 
   closedBy r := s!"This holds by {r}."
   closedByHow how := s!"{how}, we are done."
-  reason name args :=
-    match List.lookup name reasonsEn with
-    | some r => some r
-    | none =>
-      if name == "exact" || name == "apply" then args
-      else none
-  how name args :=
+  reasons := reasonsEn
+  how kind args :=
     let with_ := match args with | some a => s!" {a}" | none => ""
-    if name == "rw" || name == "rewrite" || name == "erw" then
-      s!"Rewriting with{with_}"
-    else if name.startsWith "simp" || name == "dsimp" then "Simplifying"
-    else if name == "unfold" || name == "delta" then s!"Unfolding{with_}"
-    else if name == "refine" || name == "apply" || name == "exact" then
-      s!"By{with_}"
-    else s!"By `{name}{with_}`"
+    match kind with
+    | .rewrite => s!"Rewriting with{with_}"
+    | .simplify => "Simplifying"
+    | .unfold => s!"Unfolding{with_}"
+    | .apply => s!"By{with_}"
+    | .other name => s!"By `{name}{with_}`"
   transformedBy how goal := s!"{how}, it remains to show that {goal}."
   computation := "We compute:"
   justification r := s!"by {r}"
   verbatim t := s!"In Lean: `{t}`."
-  done := "This completes the argument."
 
   typeNoun head form :=
     match List.lookup head nounsEn with
@@ -287,7 +285,7 @@ private def labelJa (n : Named) : String :=
 
 private def isJapanese (c : Char) : Bool :=
   let v := c.toNat
-  (0x3040 ≤ v && v ≤ 0x30FF) || (0x4E00 ≤ v && v ≤ 0x9FFF) || "）」』（「『、。".any (· == c)
+  (0x3040 ≤ v && v ≤ 0x30FF) || (0x4E00 ≤ v && v ≤ 0x9FFF) || "）」』（「『、。".contains c
 
 /-- Latin formulas need a space before the following particle; Japanese text does not. -/
 private def glue (s : String) : String :=
@@ -328,7 +326,6 @@ private def reasonsJa : List (String × String) :=
     ("bv_decide", "ビットベクトルの決定手続き") ]
 
 def ja : Phrases where
-  id := "ja"
   joiner := ""
   period := "。"
   list := joinJa
@@ -396,7 +393,7 @@ def ja : Phrases where
   splitInto n :=
     if n == 2 then "二つの主張を順に示す。" else s!"示すべきことが {n} つ残る。"
 
-  chooseWitness vs := s!"{joinJa vs} を取ればよい。"
+  chooseWitness w := s!"{w} を取ればよい。"
 
   obtainFrom objects facts source :=
     let from_ := match source with | some s => s!"{s} から " | none => ""
@@ -408,24 +405,21 @@ def ja : Phrases where
 
   closedBy r := s!"これは{glueBefore r}{r}{glue r}により成り立つ。"
   closedByHow how := s!"{how}、証明が終わる。"
-  reason name args :=
-    match List.lookup name reasonsJa with
-    | some r => some r
-    | none => if name == "exact" || name == "apply" then args else none
-  how name args :=
+  reasons := reasonsJa
+  how kind args :=
     let with_ := match args with | some a => s!"{a} " | none => ""
-    if name == "rw" || name == "rewrite" || name == "erw" then s!"{with_}により書き換えると"
-    else if name.startsWith "simp" || name == "dsimp" then "簡約すると"
-    else if name == "unfold" || name == "delta" then s!"{with_}の定義を展開すると"
-    else if name == "refine" || name == "apply" || name == "exact" then s!"{with_}により"
-    else s!"`{name} {with_}` により"
+    match kind with
+    | .rewrite => s!"{with_}により書き換えると"
+    | .simplify => "簡約すると"
+    | .unfold => s!"{with_}の定義を展開すると"
+    | .apply => s!"{with_}により"
+    | .other name => s!"`{name} {with_}` により"
   transformedBy how goal :=
     let n := nominalize goal
     s!"{how}、残るは {n}{glue n}を示すことである。"
   computation := "次のように計算する:"
   justification r := s!"（{r} による）"
   verbatim t := s!"Lean では `{t}`。"
-  done := "以上で証明が完了する。"
 
   typeNoun head _ := List.lookup head nounsJa
   sForall subject body := s!"任意の{subject} に対して {body}"

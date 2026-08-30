@@ -20,9 +20,13 @@ namespace HPrint
 /-- The elaborated contents of one file. -/
 structure Elaborated where
   input : String
-  env : Environment
   trees : List InfoTree
+  /-- Diagnostics, paired with whether they are errors. -/
   messages : List (Bool × String)
+
+/-- The errors, if any; both entry points report these before printing. -/
+def Elaborated.errors (e : Elaborated) : List String :=
+  e.messages.filterMap fun (isError, msg) => if isError then some msg else none
 
 /-- Elaborate `path`, keeping the info trees the renderer needs. -/
 def elaborateFile (path : System.FilePath) : IO Elaborated := do
@@ -34,18 +38,25 @@ def elaborateFile (path : System.FilePath) : IO Elaborated := do
   let s ← IO.processCommands inputCtx parserState commandState
   let msgs ← s.commandState.messages.toList.mapM fun m => do
     pure (m.severity == .error, ← m.data.toString)
-  pure {
-    input
-    env := s.commandState.env
-    trees := s.commandState.infoState.trees.toList
-    messages := msgs
-  }
+  pure { input, trees := s.commandState.infoState.trees.toList, messages := msgs }
 
 /-! ## Tactic steps -/
 
 /-- A tactic together with the goals it saw and the blocks nested inside it. -/
 inductive Step where
   | mk (ctx : ContextInfo) (info : TacticInfo) (children : List Step)
+
+/-- Last component of a name: `Nat.Prime` becomes `Prime`, `List` stays `List`. -/
+def lastComponent (n : Name) : String :=
+  match n.components.getLast? with
+  | some c => c.toString
+  | none => ""
+
+/-- The source text a piece of syntax came from, trimmed. -/
+def textAt (input : String) (stx : Syntax) : String :=
+  match stx.getRange? with
+  | some r => (input.extract r.start r.stop).trim
+  | none => ""
 
 namespace Step
 
@@ -56,15 +67,15 @@ def stx (s : Step) : Syntax := s.info.stx
 def kind (s : Step) : Name := s.info.stx.getKind
 
 /-- Source range, used both for quoting and for spotting macro expansions. -/
-def range (s : Step) : Option (String.Pos × String.Pos) :=
-  match s.stx.getPos?, s.stx.getTailPos? with
-  | some a, some b => some (a, b)
-  | _, _ => none
+def range (s : Step) : Option String.Range := s.stx.getRange?
 
 /-- The exact Lean text of this tactic. -/
-def source (s : Step) (input : String) : String :=
-  match s.range with
-  | some (a, b) => (Substring.mk input a b).toString.trim
+def source (s : Step) (input : String) : String := textAt input s.stx
+
+/-- The case tag Lean gave this step's first goal, without opening `MetaM`. -/
+def tag (s : Step) : String :=
+  match s.info.goalsBefore.head?.bind (s.info.mctxBefore.findDecl? ·) with
+  | some d => lastComponent d.userName
   | none => ""
 
 end Step
@@ -84,7 +95,7 @@ reference, so the `rfl` that `rw` runs afterwards appears under a node of kind
 punctuation, while every real tactic kind starts with a letter.
 -/
 private def isTokenKind : Name → Bool
-  | .str _ s => !s.isEmpty && !((s.get 0).isAlpha || s.get 0 == '_')
+  | .str _ s => !s.isEmpty && !(s.front.isAlpha || s.front == '_')
   | _ => false
 
 /--
@@ -139,23 +150,13 @@ structure HypView where
   deriving Inhabited
 
 structure GoalView where
-  /-- The `case` tag Lean gave this goal, e.g. `succ`, `inl`, `left`. -/
-  tag : String
   hyps : List HypView
   target : String
   targetProse : String
   targetIsFalse : Bool
   /-- Set when the goal asks for a witness, so `refine ⟨w, _⟩` can be read as one. -/
   targetIsExists : Bool
-  /-- The whole goal restated as a closed proposition, binders included. -/
-  closed : String
   deriving Inhabited
-
-/-- Last component of a name: `Nat.Prime` becomes `Prime`, `List` stays `List`. -/
-private def lastComponent (n : Name) : String :=
-  match n.components.getLast? with
-  | some c => c.toString
-  | none => ""
 
 /-- Head symbol of a type, used to look up its noun. -/
 private def headSymbol (e : Expr) : String :=
@@ -177,13 +178,16 @@ private def arrowPrefix : Expr → Nat
   | .forallE _ _ b _ => if b.hasLooseBVar 0 then 0 else 1 + arrowPrefix b
   | _ => 0
 
+/-- One quantifier phrase: the variables that share a type, and that type. -/
+private structure Subject where
+  names : List String
+  type : String
+  head : String
+
 /-- Group consecutive variables that share a type, so they read as one phrase. -/
-private def groupByType (items : List (String × String)) : List (List String × String) :=
-  items.foldl (fun acc (name, ty) =>
-    match acc.reverse with
-    | (names, t) :: rest => if t == ty then ((names ++ [name], t) :: rest).reverse
-                            else acc ++ [([name], ty)]
-    | [] => [([name], ty)]) []
+private def subjects (items : List (String × String × String)) : List Subject :=
+  (items.splitBy fun a b => a.2.1 == b.2.1).filterMap fun g =>
+    g.head?.map fun (_, ty, head) => { names := g.map (·.1), type := ty, head }
 
 mutual
 
@@ -200,11 +204,9 @@ partial def prose (ph : Phrases) (e : Expr) : MetaM String := do
         let items ← xs.toList.mapM fun x => do
           let d ← x.fvarId!.getDecl
           pure (d.userName.toString, ← ppStr d.type, headSymbol d.type)
-        let groups := groupByType (items.map fun (a, b, _) => (a, b))
-        let subjects ← groups.mapM fun (names, ty) => do
-          let head := (items.find? fun (_, t, _) => t == ty).map (·.2.2) |>.getD ""
-          pure (ph.sSubject names (ph.typeNoun head .plural |>.orElse fun _ => some ty))
-        pure (ph.sForall (ph.list subjects) (← prose ph body))
+        let phrases := (subjects items).map fun g =>
+          ph.sSubject g.names ((ph.typeNoun g.head .plural).orElse fun _ => some g.type)
+        pure (ph.sForall (ph.list phrases) (← prose ph body))
     else
       let m := arrowPrefix e
       forallBoundedTelescope e (some m) fun xs body => do
@@ -234,14 +236,17 @@ partial def premise (ph : Phrases) (e : Expr) : MetaM String := do
 
 end
 
+/-- The hypotheses of the current context, minus Lean's internal bookkeeping. -/
+private def visibleDecls : MetaM (List LocalDecl) := do
+  pure <| (← getLCtx).decls.toList.filterMap id |>.filter fun d => !d.isImplementationDetail
+
 /-- Everything the renderer needs to know about one goal. -/
 def goalView (ph : Phrases) (ctx : ContextInfo) (mctx : MetavarContext) (g : MVarId) :
     IO GoalView := do
   let ctx := { ctx with mctx }
   ctx.runMetaM {} do
     g.withContext do
-      let decls := (← getLCtx).decls.toList.filterMap id
-        |>.filter fun d => !d.isImplementationDetail
+      let decls ← visibleDecls
       let hyps ← decls.mapM fun d => do
         let ty ← instantiateMVars d.type
         pure {
@@ -252,24 +257,36 @@ def goalView (ph : Phrases) (ctx : ContextInfo) (mctx : MetavarContext) (g : MVa
           isProp := ← Meta.isProp ty
           : HypView }
       let target ← instantiateMVars (← g.getType)
-      let fvars := decls.map (·.toExpr) |>.toArray
-      let closedTy ← mkForallFVars fvars target
       pure {
-        tag := lastComponent (← g.getTag)
         hyps
         target := ← ppStr target
         targetProse := ← prose ph target
         targetIsFalse := target.isConstOf ``False
         targetIsExists := target.getAppFn.isConstOf ``Exists
-        closed := ← prose ph closedTy
       }
 
-/-- The goals a step saw before it ran. -/
-def beforeViews (ph : Phrases) (s : Step) : IO (List GoalView) :=
-  s.info.goalsBefore.mapM (goalView ph s.ctx s.info.mctxBefore ·)
+/-- The goal a step was working on.  The others are not narrated here. -/
+def beforeView (ph : Phrases) (s : Step) : IO (Option GoalView) :=
+  s.info.goalsBefore.head?.mapM (goalView ph s.ctx s.info.mctxBefore)
 
-/-- The goals a step left behind. -/
-def afterViews (ph : Phrases) (s : Step) : IO (List GoalView) :=
-  s.info.goalsAfter.mapM (goalView ph s.ctx s.info.mctxAfter ·)
+/-- The goal a step left behind, if it left one. -/
+def afterView (ph : Phrases) (s : Step) : IO (Option GoalView) :=
+  s.info.goalsAfter.head?.mapM (goalView ph s.ctx s.info.mctxAfter)
+
+/--
+The theorem a proof opens with: the step's goal closed over its hypotheses.
+Only ever needed once per declaration, so it is not part of `GoalView`.
+-/
+def statementOf (ph : Phrases) (s : Step) : IO (Option String) := do
+  match s.info.goalsBefore.head? with
+  | none => pure none
+  | some g =>
+    let ctx := { s.ctx with mctx := s.info.mctxBefore }
+    ctx.runMetaM {} do
+      g.withContext do
+        let decls ← visibleDecls
+        let target ← instantiateMVars (← g.getType)
+        let closed ← mkForallFVars (decls.map (·.toExpr)).toArray target
+        pure (some (← prose ph closed))
 
 end HPrint
