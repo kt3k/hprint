@@ -1,0 +1,38 @@
+Theorem (and_comm').
+  For all propositions p and q, if p ∧ q, then q ∧ p.
+
+Proof.
+Let p and q be propositions. Assume p ∧ q (call this h). We must show that
+q ∧ p. We prove the two parts in turn.
+
+  We must show that q. This holds by h.2.
+
+  We must show that p. This holds by h.1.
+
+∎
+
+Theorem (or_elim).
+  For all propositions p, q and r, if p ∨ q, p → r and q → r, then r.
+
+Proof.
+Let p, q and r be propositions. Assume p ∨ q (call this hpq), p → r (call
+this hpr) and q → r (call this hqr). We must show that r. We distinguish
+cases according to hpq.
+
+Case inl.
+  Assume p (call this hp). We must show that r. This holds by hpr hp.
+
+Case inr.
+  Assume q (call this hq). We must show that r. This holds by hqr hq.
+
+∎
+
+Theorem (contrapositive).
+  For all propositions p and q, if p → q and ¬q, then ¬p.
+
+Proof.
+Let p and q be propositions. Assume p → q (call this h) and ¬q (call this
+hq). We must show that ¬p. Assume p (call this hp). We must derive a
+contradiction. This holds by hq (h hp).
+
+∎

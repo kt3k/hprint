@@ -1,0 +1,161 @@
+namespace HPrint
+
+structure CalcLine where
+
+  lhs : String := ""
+  op : String
+  rhs : String
+  reason : Option String := none
+  deriving Inhabited
+
+inductive Block where
+  | heading (text : String)
+  | statement (text : String)
+  | para (text : String)
+  | nested (title : Option String) (body : List Block)
+  | calcBlock (lines : List CalcLine)
+  | qed (text : String)
+  deriving Inhabited
+
+def isWide (c : Char) : Bool :=
+  let v := c.toNat
+  (0x1100 ≤ v && v ≤ 0x115F) ||
+  (0x2E80 ≤ v && v ≤ 0xA4CF) ||
+  (0xAC00 ≤ v && v ≤ 0xD7A3) ||
+  (0xF900 ≤ v && v ≤ 0xFAFF) ||
+  (0xFE30 ≤ v && v ≤ 0xFE6F) ||
+  (0xFF00 ≤ v && v ≤ 0xFF60) ||
+  (0xFFE0 ≤ v && v ≤ 0xFFE6) ||
+  (0x20000 ≤ v && v ≤ 0x3FFFD)
+
+def dispWidth (s : String) : Nat :=
+  s.foldl (fun n c => n + if isWide c then 2 else 1) 0
+
+def isClosing (c : Char) : Bool :=
+  "。、）」』】〉》，．".contains c
+
+def segments (s : String) : List String :=
+  let rec go (cs : List Char) (cur : List Char) (acc : List String) : List String :=
+    match cs with
+    | [] => if cur.isEmpty then acc.reverse else (String.mk cur.reverse :: acc).reverse
+    | c :: rest =>
+      let cur := c :: cur
+      let breakable :=
+        c == ' ' || (isWide c && !(rest.head?.map isClosing |>.getD true))
+      if breakable then go rest [] (String.mk cur.reverse :: acc)
+      else go rest cur acc
+  go s.toList [] []
+
+def wrapText (text : String) (max : Nat) : List String :=
+  let step := fun (acc : List String × String) (chunk : String) =>
+    let (lines, cur) := acc
+    if cur.isEmpty && chunk.trim.isEmpty then (lines, cur)
+    else if dispWidth cur + dispWidth chunk > max && !cur.isEmpty then
+      (cur.trimRight :: lines, chunk.trimLeft)
+    else (lines, cur ++ chunk)
+  let (lines, cur) := (segments text).foldl step ([], "")
+  let lines := if cur.trim.isEmpty then lines else cur.trimRight :: lines
+  match lines.reverse with
+  | [] => [""]
+  | ls => ls
+
+private def indent (n : Nat) : String := "".pushn ' ' n
+
+private def padTo (s : String) (n : Nat) : String :=
+  s ++ indent (n - dispWidth s)
+
+private def calcLines (ls : List CalcLine) (pad : String) : List String :=
+  let lhsW := ls.foldl (fun n l => Nat.max n (dispWidth l.lhs)) 0
+  let opW := ls.foldl (fun n l => Nat.max n (dispWidth l.op)) 0
+  ls.map fun l =>
+    let reason := match l.reason with | some r => "    " ++ r | none => ""
+    (pad ++ padTo l.lhs lhsW ++ " " ++ padTo l.op opW ++ " " ++ l.rhs ++ reason).trimRight
+
+private partial def textOf (bs : List Block) (depth width : Nat) : List String :=
+  bs.flatMap fun b =>
+    let pad := indent (2 * depth)
+    match b with
+    | .heading t => ["", pad ++ t]
+    | .statement t => (wrapText t (width - 2 * depth - 2)).map (pad ++ "  " ++ ·) ++ [""]
+    | .para t => (wrapText t (width - 2 * depth)).map (pad ++ ·)
+    | .calcBlock ls => calcLines ls (pad ++ "  ")
+    | .qed t => ["", pad ++ t]
+    | .nested title body =>
+      [""] ++ (match title with | some t => [pad ++ t] | none => [])
+        ++ textOf body (depth + 1) width ++ [""]
+
+private def squeeze (ls : List String) : List String :=
+  ls.foldr (fun l acc =>
+    match acc with
+    | a :: _ => if l.isEmpty && a.isEmpty then acc else l :: acc
+    | [] => if l.isEmpty then [] else [l]) []
+
+private def assemble (ls : List String) : String :=
+  let ls := squeeze ls
+  String.intercalate "\n" (match ls with | "" :: rest => rest | _ => ls) ++ "\n"
+
+def toText (bs : List Block) (width : Nat := 76) : String := assemble (textOf bs 0 width)
+
+private partial def markdownOf (bs : List Block) (depth : Nat) : List String :=
+  bs.flatMap fun b =>
+    let pad := indent (2 * depth)
+    match b with
+    | .heading t => ["", pad ++ "**" ++ t ++ "**", ""]
+    | .statement t => [pad ++ "> " ++ t, ""]
+    | .para t => [pad ++ t, ""]
+    | .qed t => ["", pad ++ t, ""]
+    | .calcBlock ls => [pad ++ "```"] ++ calcLines ls pad ++ [pad ++ "```", ""]
+    | .nested title body =>
+      (match title with | some t => [pad ++ "- **" ++ t ++ "**", ""] | none => [])
+        ++ markdownOf body (depth + 1)
+
+def toMarkdown (bs : List Block) : String := assemble (markdownOf bs 0)
+
+private def escapeTex (s : String) : String :=
+  s.foldl (fun acc c =>
+    acc ++ match c with
+      | '\\' => "\\textbackslash{}"
+      | '&' => "\\&" | '%' => "\\%" | '$' => "\\$" | '#' => "\\#"
+      | '_' => "\\_" | '{' => "\\{" | '}' => "\\}"
+      | '~' => "\\textasciitilde{}" | '^' => "\\textasciicircum{}"
+      | c => c.toString) ""
+
+private partial def latexOf (bs : List Block) : List String :=
+  match bs with
+  | [] => []
+  | .nested _ _ :: _ =>
+    let (cases, rest) := bs.span fun b => match b with | .nested _ _ => true | _ => false
+    ["\\begin{itemize}"] ++ cases.flatMap (fun b =>
+      match b with
+      | .nested title body =>
+        ["\\item " ++ (match title with | some t => "\\textbf{" ++ escapeTex t ++ "}" | none => "")]
+          ++ latexOf body
+      | _ => []) ++ ["\\end{itemize}"] ++ latexOf rest
+  | b :: rest =>
+    (match b with
+     | .heading t => ["", "\\paragraph{" ++ escapeTex t ++ "}"]
+     | .statement t => ["\\begin{quote}" ++ escapeTex t ++ "\\end{quote}"]
+     | .para t => [escapeTex t, ""]
+     | .qed _ => ["\\hfill$\\square$"]
+     | .calcBlock ls =>
+       ["\\begin{align*}"] ++ ls.map (fun l =>
+         let reason := match l.reason with
+           | some r => " && \\text{" ++ escapeTex r ++ "}"
+           | none => ""
+         "  " ++ escapeTex l.lhs ++ " &" ++ escapeTex l.op ++ " " ++ escapeTex l.rhs
+           ++ reason ++ " \\\\") ++ ["\\end{align*}"]
+     | .nested _ _ => []) ++ latexOf rest
+
+def toLatex (bs : List Block) : String := assemble (latexOf bs)
+
+inductive OutFormat where
+  | text | markdown | latex
+  deriving Inhabited, DecidableEq
+
+def renderBlocks (fmt : OutFormat) (width : Nat) (bs : List Block) : String :=
+  match fmt with
+  | .text => toText bs width
+  | .markdown => toMarkdown bs
+  | .latex => toLatex bs
+
+end HPrint

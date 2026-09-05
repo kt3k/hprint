@@ -1,0 +1,30 @@
+Theorem (chain).
+  For all natural numbers a, b, c and d, if a = b, b = c and c = d, then a
+  = d.
+
+Proof.
+Let a, b, c and d be natural numbers. Assume a = b (call this h1), b = c
+(call this h2) and c = d (call this h3). We must show that a = d. We
+compute:
+  a = b    by h1
+    = c    by h2
+    = d    by h3
+
+∎
+
+Theorem (append_nil').
+  For all lists l, l ++ [] = l.
+
+Proof.
+Let l be a list. We must show that l ++ [] = l. We argue by induction on
+the list l.
+
+Base case (nil).
+  We must show that [] ++ [] = []. This holds by reflexivity.
+
+Inductive step (cons).
+  Let x be a natural number and xs be a list. By the induction hypothesis
+  ih we may assume that xs ++ [] = xs. We must show that x :: xs ++ [] = x
+  :: xs. Rewriting with List.cons_append and ih, we are done.
+
+∎
