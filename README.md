@@ -125,9 +125,9 @@ laying a `calc` chain out as a displayed computation. That is why the renderer
 stays small while covering tactics it has never heard of: an unknown tactic
 still has a goal before and after it, and that is what gets described.
 
-Every sentence comes from a `Phrases` vocabulary (`HPrint/Phrases.lean`); the
-proof-walking code never concatenates prose itself, so the wording can be
-changed — or another language added — without touching the walk.
+Every sentence comes from `HPrint/Phrases.lean`; the proof-walking code never
+concatenates prose itself, so the wording is changed in one file without
+touching the walk.
 
 ## Development
 

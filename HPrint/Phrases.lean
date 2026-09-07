@@ -1,7 +1,6 @@
 namespace HPrint
 
 inductive NounForm where
-
   | article
   | bare
   | plural
@@ -25,45 +24,6 @@ structure FixGroup where
   noun : Option String := none
   type : Option String := none
   deriving Inhabited
-
-structure Phrases where
-
-  joiner : String
-  period : String
-  list : List String → String
-  headingTheorem : String → Option String → String
-  headingProof : String
-  qed : String
-  fix : List FixGroup → String
-  assume : List Named → String
-  mustShow : String → String
-  mustShowFalse : String
-  remainsToShow : String → String
-  weHave : Named → Option String → String
-  claim : Named → String
-  inductionOn : String → Option String → String
-  caseAnalysis : String → String
-  caseLabel : String → String
-  baseCaseLabel : String → String
-  stepCaseLabel : String → String
-  inductionHypothesis : Named → String
-  splitInto : Nat → String
-  chooseWitness : String → String
-  obtainFrom : List String → List Named → Option String → String
-  closedBy : String → String
-  closedByHow : String → String
-  reasons : List (String × String)
-  how : HowKind → Option String → String
-  transformedBy : String → String → String
-  computation : String
-  justification : String → String
-  verbatim : String → String
-  typeNoun : String → NounForm → Option String
-  sForall : String → String → String
-  sIf : List String → String → String
-  sExists : String → String → String
-  sSubject : List String → Option String → String
-  anonymousFact : String
 
 private def joinEn (items : List String) : String :=
   match items with
@@ -119,90 +79,116 @@ private def reasonsEn : List (String × String) :=
     ("aesop", "routine reasoning"),
     ("bv_decide", "a bit-vector decision procedure") ]
 
-def en : Phrases where
-  joiner := " "
-  period := "."
-  list := joinEn
-  headingTheorem kw name :=
-    let head :=
-      if kw == "lemma" then "Lemma"
-      else if kw == "example" then "Example"
-      else if kw == "def" then "Definition"
-      else "Theorem"
-    match name with
-    | some n => s!"{head} ({n})."
-    | none => s!"{head}."
-  headingProof := "Proof."
-  qed := "∎"
-  fix groups :=
-    let parts := groups.map fun g =>
-      match g.noun, g.type with
-      | some n, _ => s!"{joinEn g.names} be {n}"
-      | none, some t => s!"{joinEn g.names} : {t}"
-      | none, none => joinEn g.names
-    let named := groups.any fun g => g.noun.isSome || g.type.isSome
-    if named then s!"Let {joinEn parts}." else s!"Fix {joinEn parts}."
-  assume items :=
-    if items.isEmpty then "" else s!"Assume {joinEn (items.map labelEn)}."
-  mustShow stmt := s!"We must show that {stmt}."
-  mustShowFalse := "We must derive a contradiction."
-  remainsToShow stmt := s!"It remains to show that {stmt}."
-  weHave item r :=
-    match r with
-    | some r => s!"By {r}, we have {labelEn item}."
-    | none => s!"We have {labelEn item}."
-  claim item := s!"We claim that {labelEn item}."
-  inductionOn subject noun :=
-    match noun with
-    | some n => s!"We argue by induction on the {n} {subject}."
-    | none => s!"We argue by induction on {subject}."
-  caseAnalysis subject := s!"We distinguish cases according to {subject}."
-  caseLabel d := s!"Case {d}."
-  baseCaseLabel d := s!"Base case ({d})."
-  stepCaseLabel d := s!"Inductive step ({d})."
-  inductionHypothesis item :=
-    match item.name with
-    | some n => s!"By the induction hypothesis {n} we may assume that {item.stmt}."
-    | none => s!"By the induction hypothesis we may assume that {item.stmt}."
-  splitInto n :=
-    if n == 2 then "We prove the two parts in turn."
-    else s!"This leaves {n} things to prove."
-  chooseWitness w := s!"Take {w} as the witness."
-  obtainFrom objects facts source :=
-    let from_ := match source with
-      | some s => s!"From {s} we obtain "
-      | none => "We obtain "
-    if objects.isEmpty then s!"{from_}{joinEn (facts.map labelEn)}."
-    else
-      let such := if facts.isEmpty then ""
-        else s!" such that {joinEn (facts.map (·.stmt))}"
-      s!"{from_}{joinEn objects}{such}."
-  closedBy r := s!"This holds by {r}."
-  closedByHow how := s!"{how}, we are done."
-  reasons := reasonsEn
-  how kind args :=
-    let with_ := match args with | some a => s!" {a}" | none => ""
-    match kind with
-    | .rewrite => s!"Rewriting with{with_}"
-    | .simplify => "Simplifying"
-    | .unfold => s!"Unfolding{with_}"
-    | .apply => s!"By{with_}"
-    | .other name => s!"By `{name}{with_}`"
-  transformedBy how goal := s!"{how}, it remains to show that {goal}."
-  computation := "We compute:"
-  justification r := s!"by {r}"
-  verbatim t := s!"In Lean: `{t}`."
-  typeNoun head form :=
-    match List.lookup head nounsEn with
-    | some (a, b, p) => some (match form with | .article => a | .bare => b | .plural => p)
-    | none => none
-  sForall subject body := s!"for all {subject}, {body}"
-  sIf premises concl := s!"if {joinEn premises}, then {concl}"
-  sExists subject body := s!"there is {subject} such that {body}"
-  sSubject names noun :=
-    match noun with
-    | some n => s!"{n} {joinEn names}"
-    | none => joinEn names
-  anonymousFact := "this"
+namespace Phrases
+
+def joiner : String := " "
+def period : String := "."
+def list : List String → String := joinEn
+
+def headingTheorem (kw : String) (name : Option String) : String :=
+  let head :=
+    if kw == "lemma" then "Lemma"
+    else if kw == "example" then "Example"
+    else if kw == "def" then "Definition"
+    else "Theorem"
+  match name with
+  | some n => s!"{head} ({n})."
+  | none => s!"{head}."
+
+def headingProof : String := "Proof."
+def qed : String := "∎"
+
+def fix (groups : List FixGroup) : String :=
+  let parts := groups.map fun g =>
+    match g.noun, g.type with
+    | some n, _ => s!"{joinEn g.names} be {n}"
+    | none, some t => s!"{joinEn g.names} : {t}"
+    | none, none => joinEn g.names
+  let named := groups.any fun g => g.noun.isSome || g.type.isSome
+  if named then s!"Let {joinEn parts}." else s!"Fix {joinEn parts}."
+
+def assume (items : List Named) : String :=
+  if items.isEmpty then "" else s!"Assume {joinEn (items.map labelEn)}."
+
+def mustShow (stmt : String) : String := s!"We must show that {stmt}."
+def mustShowFalse : String := "We must derive a contradiction."
+def remainsToShow (stmt : String) : String := s!"It remains to show that {stmt}."
+
+def weHave (item : Named) (reason : Option String) : String :=
+  match reason with
+  | some r => s!"By {r}, we have {labelEn item}."
+  | none => s!"We have {labelEn item}."
+
+def claim (item : Named) : String := s!"We claim that {labelEn item}."
+
+def inductionOn (subject : String) (noun : Option String) : String :=
+  match noun with
+  | some n => s!"We argue by induction on the {n} {subject}."
+  | none => s!"We argue by induction on {subject}."
+
+def caseAnalysis (subject : String) : String :=
+  s!"We distinguish cases according to {subject}."
+def caseLabel (d : String) : String := s!"Case {d}."
+def baseCaseLabel (d : String) : String := s!"Base case ({d})."
+def stepCaseLabel (d : String) : String := s!"Inductive step ({d})."
+
+def inductionHypothesis (item : Named) : String :=
+  match item.name with
+  | some n => s!"By the induction hypothesis {n} we may assume that {item.stmt}."
+  | none => s!"By the induction hypothesis we may assume that {item.stmt}."
+
+def splitInto (n : Nat) : String :=
+  if n == 2 then "We prove the two parts in turn."
+  else s!"This leaves {n} things to prove."
+
+def chooseWitness (w : String) : String := s!"Take {w} as the witness."
+
+def obtainFrom (objects : List String) (facts : List Named) (source : Option String) : String :=
+  let from_ := match source with
+    | some s => s!"From {s} we obtain "
+    | none => "We obtain "
+  if objects.isEmpty then s!"{from_}{joinEn (facts.map labelEn)}."
+  else
+    let such := if facts.isEmpty then ""
+      else s!" such that {joinEn (facts.map (·.stmt))}"
+    s!"{from_}{joinEn objects}{such}."
+
+def closedBy (reason : String) : String := s!"This holds by {reason}."
+def closedByHow (how : String) : String := s!"{how}, we are done."
+def reasons : List (String × String) := reasonsEn
+
+def how (kind : HowKind) (args : Option String) : String :=
+  let with_ := match args with | some a => s!" {a}" | none => ""
+  match kind with
+  | .rewrite => s!"Rewriting with{with_}"
+  | .simplify => "Simplifying"
+  | .unfold => s!"Unfolding{with_}"
+  | .apply => s!"By{with_}"
+  | .other name => s!"By `{name}{with_}`"
+
+def transformedBy (how goal : String) : String :=
+  s!"{how}, it remains to show that {goal}."
+
+def computation : String := "We compute:"
+def justification (reason : String) : String := s!"by {reason}"
+def verbatim (text : String) : String := s!"In Lean: `{text}`."
+
+def typeNoun (head : String) (form : NounForm) : Option String :=
+  match List.lookup head nounsEn with
+  | some (a, b, p) => some (match form with | .article => a | .bare => b | .plural => p)
+  | none => none
+
+def sForall (subject body : String) : String := s!"for all {subject}, {body}"
+def sIf (premises : List String) (concl : String) : String :=
+  s!"if {joinEn premises}, then {concl}"
+def sExists (subject body : String) : String := s!"there is {subject} such that {body}"
+def sSubject (names : List String) (noun : Option String) : String :=
+  match noun with
+  | some n => s!"{n} {joinEn names}"
+  | none => joinEn names
+
+def anonymousFact : String := "this"
+
+end Phrases
 
 end HPrint

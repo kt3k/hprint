@@ -129,7 +129,7 @@ private def subjects (items : List (String × String × String)) : List Subject 
 
 mutual
 
-partial def prose (ph : Phrases) (e : Expr) : MetaM String := do
+partial def prose (e : Expr) : MetaM String := do
   let e ← instantiateMVars e
   if e.isForall then
     let n := dependentPrefix e
@@ -139,13 +139,13 @@ partial def prose (ph : Phrases) (e : Expr) : MetaM String := do
           let d ← x.fvarId!.getDecl
           pure (d.userName.toString, ← ppStr d.type, headSymbol d.type)
         let phrases := (subjects items).map fun g =>
-          ph.sSubject g.names ((ph.typeNoun g.head .plural).orElse fun _ => some g.type)
-        pure (ph.sForall (ph.list phrases) (← prose ph body))
+          Phrases.sSubject g.names ((Phrases.typeNoun g.head .plural).orElse fun _ => some g.type)
+        pure (Phrases.sForall (Phrases.list phrases) (← prose body))
     else
       let m := arrowPrefix e
       forallBoundedTelescope e (some m) fun xs body => do
-        let premises ← xs.toList.mapM fun x => do premise ph (← x.fvarId!.getType)
-        pure (ph.sIf premises (← prose ph body))
+        let premises ← xs.toList.mapM fun x => do premise (← x.fvarId!.getType)
+        pure (Phrases.sIf premises (← prose body))
   else match e.getAppFnArgs with
     | (``Exists, #[_, p]) =>
       lambdaBoundedTelescope p 1 fun xs body => do
@@ -153,15 +153,15 @@ partial def prose (ph : Phrases) (e : Expr) : MetaM String := do
         | some x =>
           let d ← x.fvarId!.getDecl
           let ty ← ppStr d.type
-          let noun := (ph.typeNoun (headSymbol d.type) .article).getD ty
-          pure (ph.sExists (ph.sSubject [d.userName.toString] (some noun)) (← prose ph body))
+          let noun := (Phrases.typeNoun (headSymbol d.type) .article).getD ty
+          pure (Phrases.sExists (Phrases.sSubject [d.userName.toString] (some noun)) (← prose body))
         | none => ppStr e
     | _ => ppStr e
 
-partial def premise (ph : Phrases) (e : Expr) : MetaM String := do
-  if e.isForall && dependentPrefix e > 0 then prose ph e
+partial def premise (e : Expr) : MetaM String := do
+  if e.isForall && dependentPrefix e > 0 then prose e
   else match e.getAppFnArgs with
-    | (``Exists, _) => prose ph e
+    | (``Exists, _) => prose e
     | _ => ppStr e
 
 end
@@ -169,7 +169,7 @@ end
 private def visibleDecls : MetaM (List LocalDecl) := do
   pure <| (← getLCtx).decls.toList.filterMap id |>.filter fun d => !d.isImplementationDetail
 
-def goalView (ph : Phrases) (ctx : ContextInfo) (mctx : MetavarContext) (g : MVarId) :
+def goalView (ctx : ContextInfo) (mctx : MetavarContext) (g : MVarId) :
     IO GoalView := do
   let ctx := { ctx with mctx }
   ctx.runMetaM {} do
@@ -180,7 +180,7 @@ def goalView (ph : Phrases) (ctx : ContextInfo) (mctx : MetavarContext) (g : MVa
         pure {
           name := d.userName.toString
           type := ← ppStr ty
-          prose := ← premise ph ty
+          prose := ← premise ty
           head := headSymbol ty
           isProp := ← Meta.isProp ty
           : HypView }
@@ -188,18 +188,18 @@ def goalView (ph : Phrases) (ctx : ContextInfo) (mctx : MetavarContext) (g : MVa
       pure {
         hyps
         target := ← ppStr target
-        targetProse := ← prose ph target
+        targetProse := ← prose target
         targetIsFalse := target.isConstOf ``False
         targetIsExists := target.getAppFn.isConstOf ``Exists
       }
 
-def beforeView (ph : Phrases) (s : Step) : IO (Option GoalView) :=
-  s.info.goalsBefore.head?.mapM (goalView ph s.ctx s.info.mctxBefore)
+def beforeView (s : Step) : IO (Option GoalView) :=
+  s.info.goalsBefore.head?.mapM (goalView s.ctx s.info.mctxBefore)
 
-def afterView (ph : Phrases) (s : Step) : IO (Option GoalView) :=
-  s.info.goalsAfter.head?.mapM (goalView ph s.ctx s.info.mctxAfter)
+def afterView (s : Step) : IO (Option GoalView) :=
+  s.info.goalsAfter.head?.mapM (goalView s.ctx s.info.mctxAfter)
 
-def statementOf (ph : Phrases) (s : Step) : IO (Option String) := do
+def statementOf (s : Step) : IO (Option String) := do
   match s.info.goalsBefore.head? with
   | none => pure none
   | some g =>
@@ -209,6 +209,6 @@ def statementOf (ph : Phrases) (s : Step) : IO (Option String) := do
         let decls ← visibleDecls
         let target ← instantiateMVars (← g.getType)
         let closed ← mkForallFVars (decls.map (·.toExpr)).toArray target
-        pure (some (← prose ph closed))
+        pure (some (← prose closed))
 
 end HPrint
