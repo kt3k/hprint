@@ -1,18 +1,13 @@
 name = "hprint"
 version = "0.1.0"
-defaultTargets = ["HPrint", "hprint", "test"]
+defaultTargets = ["HPrint", "test"]
 testDriver = "test"
 
 [[lean_lib]]
 name = "HPrint"
 
-[[lean_exe]]
-name = "hprint"
-root = "Main"
-# hprint elaborates the input file, so the binary must be able to load
+# The test driver elaborates Lean files, so it must be able to load
 # `Init`/`Lean` oleans and run the interpreter.
-supportInterpreter = true
-
 [[lean_exe]]
 name = "test"
 root = "Test.Main"

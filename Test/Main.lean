@@ -15,17 +15,13 @@ private def Report.eq [BEq α] [ToString α] (r : Report) (name : String) (actua
 
 private def unitChecks : Report :=
   let r : Report := {}
-  let r := r.eq "wrap breaks on spaces" (wrapText "one two three four" 9)
-      ["one two", "three", "four"]
-  let r := r.eq "wrap keeps a token that cannot be broken"
-      (wrapText "a nonbreakabletoken b" 6) ["a", "nonbreakabletoken", "b"]
   let sample : List Block :=
     [ .heading "Theorem.", .statement "Every n satisfies P n.", .para "Let n be a natural number.",
       .nested (some "Base case.") [.para "Immediate."],
       .calcBlock [{ lhs := "a", op := "=", rhs := "b", reason := some "by h" },
                   { op := "=", rhs := "c" }],
       .qed "∎" ]
-  let text := toText sample 60
+  let text := toText sample
   let r := r.check "text indents nested blocks" ((text.splitOn "\n  Immediate.").length == 2)
   let r := r.check "text aligns calc" ((text.splitOn "  a = b    by h").length == 2)
   let md := toMarkdown sample
@@ -58,12 +54,9 @@ private def goldenChecks (update : Bool) (r : Report) : IO Report := do
     r := r.check s!"{base} elaborates without errors" errors.isEmpty
     for msg in errors do
       IO.eprintln s!"  {base}: {msg}"
-    let blocks ← renderElaborated e { width := 76 }
-    let actual := renderBlocks .text 76 blocks
+    let blocks ← renderElaborated e {}
+    let actual := renderBlocks .text blocks
     r := r.check s!"{base} produces a proof" ((actual.splitOn "∎").length ≥ 2)
-    for line in actual.splitOn "\n" do
-      if line.length > 76 then
-        r := r.check s!"{base} line too wide: {line}" false
     let path := goldenPath base
     if update then
       IO.FS.writeFile path actual

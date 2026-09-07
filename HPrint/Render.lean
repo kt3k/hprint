@@ -7,7 +7,6 @@ namespace HPrint
 
 structure Options where
   statement : Bool := true
-  width : Nat := 76
   format : OutFormat := .text
   deriving Inhabited
 
@@ -364,6 +363,6 @@ def renderElaborated (e : Elaborated) (opts : Options := {}) : IO (List Block) :
 def printFile (path : System.FilePath) (opts : Options := {}) : IO String := do
   let e ← elaborateFile path
   let blocks ← renderElaborated e opts
-  pure (renderBlocks opts.format opts.width blocks)
+  pure (renderBlocks opts.format blocks)
 
 end HPrint

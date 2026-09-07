@@ -17,29 +17,6 @@ inductive Block where
   | qed (text : String)
   deriving Inhabited
 
-def segments (s : String) : List String :=
-  let rec go (cs : List Char) (cur : List Char) (acc : List String) : List String :=
-    match cs with
-    | [] => if cur.isEmpty then acc.reverse else (String.mk cur.reverse :: acc).reverse
-    | c :: rest =>
-      let cur := c :: cur
-      if c == ' ' then go rest [] (String.mk cur.reverse :: acc)
-      else go rest cur acc
-  go s.toList [] []
-
-def wrapText (text : String) (max : Nat) : List String :=
-  let step := fun (acc : List String × String) (chunk : String) =>
-    let (lines, cur) := acc
-    if cur.isEmpty && chunk.trim.isEmpty then (lines, cur)
-    else if cur.length + chunk.length > max && !cur.isEmpty then
-      (cur.trimRight :: lines, chunk.trimLeft)
-    else (lines, cur ++ chunk)
-  let (lines, cur) := (segments text).foldl step ([], "")
-  let lines := if cur.trim.isEmpty then lines else cur.trimRight :: lines
-  match lines.reverse with
-  | [] => [""]
-  | ls => ls
-
 private def indent (n : Nat) : String := "".pushn ' ' n
 
 private def padTo (s : String) (n : Nat) : String :=
@@ -52,18 +29,18 @@ private def calcLines (ls : List CalcLine) (pad : String) : List String :=
     let reason := match l.reason with | some r => "    " ++ r | none => ""
     (pad ++ padTo l.lhs lhsW ++ " " ++ padTo l.op opW ++ " " ++ l.rhs ++ reason).trimRight
 
-private partial def textOf (bs : List Block) (depth width : Nat) : List String :=
+private partial def textOf (bs : List Block) (depth : Nat) : List String :=
   bs.flatMap fun b =>
     let pad := indent (2 * depth)
     match b with
     | .heading t => ["", pad ++ t]
-    | .statement t => (wrapText t (width - 2 * depth - 2)).map (pad ++ "  " ++ ·) ++ [""]
-    | .para t => (wrapText t (width - 2 * depth)).map (pad ++ ·)
+    | .statement t => [pad ++ "  " ++ t, ""]
+    | .para t => [pad ++ t]
     | .calcBlock ls => calcLines ls (pad ++ "  ")
     | .qed t => ["", pad ++ t]
     | .nested title body =>
       [""] ++ (match title with | some t => [pad ++ t] | none => [])
-        ++ textOf body (depth + 1) width ++ [""]
+        ++ textOf body (depth + 1) ++ [""]
 
 private def squeeze (ls : List String) : List String :=
   ls.foldr (fun l acc =>
@@ -75,7 +52,7 @@ private def assemble (ls : List String) : String :=
   let ls := squeeze ls
   String.intercalate "\n" (match ls with | "" :: rest => rest | _ => ls) ++ "\n"
 
-def toText (bs : List Block) (width : Nat := 76) : String := assemble (textOf bs 0 width)
+def toText (bs : List Block) : String := assemble (textOf bs 0)
 
 private partial def markdownOf (bs : List Block) (depth : Nat) : List String :=
   bs.flatMap fun b =>
@@ -133,9 +110,9 @@ inductive OutFormat where
   | text | markdown | latex
   deriving Inhabited, DecidableEq
 
-def renderBlocks (fmt : OutFormat) (width : Nat) (bs : List Block) : String :=
+def renderBlocks (fmt : OutFormat) (bs : List Block) : String :=
   match fmt with
-  | .text => toText bs width
+  | .text => toText bs
   | .markdown => toMarkdown bs
   | .latex => toLatex bs
 

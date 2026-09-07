@@ -8,25 +8,27 @@ command. A proof in a textbook is written for a reader: sentences that fix
 objects, state assumptions, name the goal, split into cases and finish with a
 box. `hprint` reads the first and prints the second.
 
+```lean
+#eval do IO.print (← printFile "examples/induction.lean")
 ```
-$ hprint examples/induction.lean
+
+```
 Theorem (zero_add').
   For all natural numbers n, 0 + n = n.
 
 Proof.
-Let n be a natural number. We must show that 0 + n = n. We argue by
-induction on the natural number n.
+Let n be a natural number. We must show that 0 + n = n. We argue by induction on the natural number n.
 
 Base case (zero).
   We must show that 0 + 0 = 0. This holds by reflexivity.
 
 Inductive step (succ).
-  Let k be a natural number. By the induction hypothesis ih we may assume
-  that 0 + k = k. We must show that 0 + (k + 1) = k + 1. Rewriting with
-  Nat.add_succ and ih, we are done.
+  Let k be a natural number. By the induction hypothesis ih we may assume that 0 + k = k. We must show that 0 + (k + 1) = k + 1. Rewriting with Nat.add_succ and ih, we are done.
 
 ∎
 ```
+
+Paragraphs are emitted as single lines; wrap them wherever you display them.
 
 Every goal in that output is Lean's own. `hprint` does not parse Lean and does
 not guess what a tactic did: it hands the file to Lean's frontend, elaborates
@@ -41,41 +43,42 @@ up the pinned version from `lean-toolchain`.
 
 ```
 lake build
-./.lake/build/bin/hprint examples/induction.lean
 ```
 
-## Usage
+## Use
 
-```
-hprint [OPTIONS] FILE...
-
-  -f, --format <text|markdown|latex>    Output format        (default: text)
-  -w, --width <n>                       Line width for text  (default: 76)
-      --no-statement                    Omit the restated theorem
-```
-
-Because `hprint` elaborates its input, a proof that uses a library has to be
-printed from inside that library's Lake project, so that its imports resolve:
-
-```
-lake env hprint MyProject/Basic.lean
-```
-
-If the file does not elaborate, the errors go to stderr and the exit status is
-non-zero. `hprint` still prints what it can, but the goals it narrates are no
-longer the ones you meant.
-
-## As a library
+`hprint` is a library. The whole job in one call:
 
 ```lean
 import HPrint
 open HPrint
 
-#eval do IO.print (← printFile "examples/induction.lean" { width := 100 })
+#eval do IO.print (← printFile "examples/induction.lean")
+#eval do IO.print (← printFile "Foo.lean" { format := .markdown, statement := false })
 ```
 
-`elaborateFile` gives you the info trees, `renderElaborated` the block tree,
-and `renderBlocks` the text — swap in your own writer at whichever level suits.
+Or take it in stages and stop wherever suits:
+
+| Call | Gives you |
+| --- | --- |
+| `elaborateFile : FilePath → IO Elaborated` | the file elaborated, with its info trees and diagnostics |
+| `renderElaborated : Elaborated → Options → IO (List Block)` | the proof as a tree of `Block`s |
+| `renderBlocks : OutFormat → List Block → String` | text, Markdown or LaTeX |
+| `toText` / `toMarkdown` / `toLatex : List Block → String` | one writer directly |
+| `printFile : FilePath → Options → IO String` | all three at once |
+
+Reach for `Block` if you want your own writer: it is a plain inductive of
+headings, paragraphs, nested case blocks and `calc` chains, with no Lean types
+in it.
+
+`Options` has `statement` (restate the theorem before its proof, default
+`true`) and `format` (default `.text`).
+
+Because `hprint` elaborates its input, a proof that uses a library has to be
+run from inside that library's Lake project, so that its imports resolve —
+`lake env lean` for a script, or a `#eval` in a file of that project.
+`Elaborated.errors` is non-empty when the file did not elaborate; the goals
+narrated in that case are not the ones you meant.
 
 ## How it works
 
@@ -137,8 +140,7 @@ lake test -- --update     # accept new golden output after a deliberate change
 
 The golden files in `test/golden/` hold the rendered form of every example, so
 any change to the narration shows up as a diff you have to look at. The suite
-also asserts that every example elaborates cleanly and that no line exceeds the
-requested width.
+also asserts that every example elaborates cleanly.
 
 ## Limitations
 
