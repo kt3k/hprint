@@ -44,8 +44,7 @@ private def goldenChecks (update : Bool) (r : Report) : IO Report := do
     r := r.check s!"{base} elaborates without errors" errors.isEmpty
     for msg in errors do
       IO.eprintln s!"  {base}: {msg}"
-    let blocks ← renderElaborated e {}
-    let actual := toText blocks
+    let actual ← hprint e
     r := r.check s!"{base} produces a proof" ((actual.splitOn "∎").length ≥ 2)
     let path := goldenPath base
     if update then

@@ -352,16 +352,18 @@ partial def declarationsOf (t : InfoTree) : List (Syntax × List Step) :=
       else cs.toList.flatMap declarationsOf
     | _ => cs.toList.flatMap declarationsOf
 
-def renderElaborated (e : Elaborated) (opts : Options := {}) : IO (List Block) := do
+private def renderElaborated (e : Elaborated) (opts : Options := {}) : IO (List Block) := do
   let c : Ctx := { ph := en, input := e.input, restate := opts.statement }
   let mut out : List Block := []
   for (stx, steps) in e.trees.flatMap declarationsOf do
     out := out ++ (← renderDeclaration c stx steps)
   pure out
 
-def printProof (input : String) (opts : Options := {}) (fileName : String := "<input>") :
-    IO String := do
-  let e ← elaborate input fileName
+def hprint (e : Elaborated) (opts : Options := {}) : IO String := do
   pure (toText (← renderElaborated e opts))
+
+def hprintStr (input : String) (opts : Options := {}) (fileName : String := "<input>") :
+    IO String := do
+  hprint (← elaborate input fileName) opts
 
 end HPrint

@@ -9,7 +9,7 @@ objects, state assumptions, name the goal, split into cases and finish with a
 box. `hprint` reads the first and prints the second.
 
 ```lean
-#eval do IO.print (← printProof (← IO.FS.readFile "examples/induction.lean"))
+#eval do IO.print (← hprintStr (← IO.FS.readFile "examples/induction.lean"))
 ```
 
 ```
@@ -53,21 +53,24 @@ lake build
 import HPrint
 open HPrint
 
-#eval do IO.print (← printProof (← IO.FS.readFile "examples/induction.lean"))
+#eval do IO.print (← hprintStr (← IO.FS.readFile "examples/induction.lean"))
 ```
 
 Or take it in stages and stop wherever suits:
 
 | Call | Gives you |
 | --- | --- |
+| `hprintStr : String → Options → String → IO String` | source in, proof out |
 | `elaborate : String → String → IO Elaborated` | the source elaborated, with its info trees and diagnostics |
-| `renderElaborated : Elaborated → Options → IO (List Block)` | the proof as a tree of `Block`s |
-| `toText : List Block → String` | the finished text |
-| `printProof : String → Options → String → IO String` | all three at once |
+| `hprint : Elaborated → Options → IO String` | the proof, from something already elaborated |
 
-Reach for `Block` if you want your own output format: it is a plain inductive
-of headings, paragraphs, nested case blocks and `calc` chains, with no Lean
-types in it, and `toText` is a short example of a writer over it.
+`hprint` is the one to reach for when you already ran Lean's frontend yourself
+and have an `Elaborated` in hand; `hprintStr` is that plus `elaborate`.
+
+Behind them the proof is first built as a tree of `Block`s — headings,
+paragraphs, nested case blocks and `calc` chains, with no Lean types in it —
+and `toText` turns that into the finished string. Both are public, so a caller
+who wants another output format can write a writer over `Block`.
 
 `Options` has one field, `statement`, which restates the theorem before its
 proof; it defaults to `true`.
