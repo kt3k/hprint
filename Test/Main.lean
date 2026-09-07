@@ -1,4 +1,8 @@
+module
+
 import HPrint
+import all HPrint.Doc
+import all HPrint.Analysis
 
 open HPrint
 
@@ -61,7 +65,7 @@ private def goldenChecks (update : Bool) (r : Report) : IO Report := do
       r := r.check s!"{base} has a golden file" false
   pure r
 
-def main (args : List String) : IO UInt32 := do
+public def main (args : List String) : IO UInt32 := do
   Lean.initSearchPath (← Lean.findSysroot)
   let update := args.contains "--update"
   let r ← goldenChecks update unitChecks

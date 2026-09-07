@@ -1,11 +1,15 @@
-import HPrint.Analysis
-import HPrint.Doc
+module
+
+public import HPrint.Analysis
+import all HPrint.Analysis
+import all HPrint.Phrases
+import all HPrint.Doc
 
 open Lean Elab
 
 namespace HPrint
 
-structure Options where
+public structure Options where
   statement : Bool := true
   deriving Inhabited
 
@@ -352,10 +356,10 @@ private def renderElaborated (e : Elaborated) (opts : Options := {}) : IO (List 
     out := out ++ (← renderDeclaration c stx steps)
   pure out
 
-def hprint (e : Elaborated) (opts : Options := {}) : IO String := do
+public def hprint (e : Elaborated) (opts : Options := {}) : IO String := do
   pure (toText (← renderElaborated e opts))
 
-def hprintStr (input : String) (opts : Options := {}) (fileName : String := "<input>") :
+public def hprintStr (input : String) (opts : Options := {}) (fileName : String := "<input>") :
     IO String := do
   hprint (← elaborate input fileName) opts
 

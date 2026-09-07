@@ -67,10 +67,11 @@ Or take it in stages and stop wherever suits:
 `hprint` is the one to reach for when you already ran Lean's frontend yourself
 and have an `Elaborated` in hand; `hprintStr` is that plus `elaborate`.
 
-Behind them the proof is first built as a tree of `Block`s — headings,
-paragraphs, nested case blocks and `calc` chains, with no Lean types in it —
-and `toText` turns that into the finished string. Both are public, so a caller
-who wants another output format can write a writer over `Block`.
+That, plus `Options` and `Elaborated`, is the whole public surface. Everything
+else — the block tree, the writer, the wording, the step and goal views — is
+internal, and the package uses Lean's module system to keep it that way: only
+the entry points are marked `public`, and the modules reach each other's
+internals with `import all`.
 
 `Options` has one field, `statement`, which restates the theorem before its
 proof; it defaults to `true`.

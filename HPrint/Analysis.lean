@@ -1,19 +1,21 @@
-import Lean
-import HPrint.Phrases
+module
+
+public import Lean
+import all HPrint.Phrases
 
 open Lean Elab Meta
 
 namespace HPrint
 
-structure Elaborated where
+public structure Elaborated where
   input : String
   trees : List InfoTree
   messages : List (Bool × String)
 
-def Elaborated.errors (e : Elaborated) : List String :=
+public def Elaborated.errors (e : Elaborated) : List String :=
   e.messages.filterMap fun (isError, msg) => if isError then some msg else none
 
-def elaborate (input : String) (fileName : String := "<input>") : IO Elaborated := do
+public def elaborate (input : String) (fileName : String := "<input>") : IO Elaborated := do
   let inputCtx := Parser.mkInputContext input fileName
   let (header, parserState, messages) ← Parser.parseHeader inputCtx
   let (env, messages) ← processHeader header {} messages inputCtx

@@ -3,6 +3,10 @@ version = "0.1.0"
 defaultTargets = ["HPrint", "test"]
 testDriver = "test"
 
+# The module system is what keeps everything but the entry points unexported.
+[leanOptions]
+experimental.module = true
+
 [[lean_lib]]
 name = "HPrint"
 
