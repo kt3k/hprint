@@ -24,16 +24,6 @@ private def unitChecks : Report :=
   let text := toText sample
   let r := r.check "text indents nested blocks" ((text.splitOn "\n  Immediate.").length == 2)
   let r := r.check "text aligns calc" ((text.splitOn "  a = b    by h").length == 2)
-  let md := toMarkdown sample
-  let r := r.check "markdown bolds headings" ((md.splitOn "**Theorem.**").length == 2)
-  let r := r.check "markdown quotes the statement"
-      ((md.splitOn "> Every n satisfies P n.").length == 2)
-  let tex := toLatex sample
-  let r := r.check "latex escapes and boxes"
-      ((tex.splitOn "\\hfill$\\square$").length == 2)
-  let tex2 := toLatex [.nested (some "One.") [], .nested (some "Two.") []]
-  let r := r.check "latex groups consecutive cases"
-      ((tex2.splitOn "\\begin{itemize}").length == 2)
   r
 
 private def goldenPath (base : String) : System.FilePath :=
@@ -49,13 +39,13 @@ private def goldenChecks (update : Bool) (r : Report) : IO Report := do
   let mut r := r
   for file in ← exampleFiles do
     let base := (file.fileStem).getD "?"
-    let e ← elaborateFile file
+    let e ← elaborate (← IO.FS.readFile file) file.toString
     let errors := e.errors
     r := r.check s!"{base} elaborates without errors" errors.isEmpty
     for msg in errors do
       IO.eprintln s!"  {base}: {msg}"
     let blocks ← renderElaborated e {}
-    let actual := renderBlocks .text blocks
+    let actual := toText blocks
     r := r.check s!"{base} produces a proof" ((actual.splitOn "∎").length ≥ 2)
     let path := goldenPath base
     if update then

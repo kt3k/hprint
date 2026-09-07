@@ -9,7 +9,7 @@ objects, state assumptions, name the goal, split into cases and finish with a
 box. `hprint` reads the first and prints the second.
 
 ```lean
-#eval do IO.print (← printFile "examples/induction.lean")
+#eval do IO.print (← printProof (← IO.FS.readFile "examples/induction.lean"))
 ```
 
 ```
@@ -47,48 +47,44 @@ lake build
 
 ## Use
 
-`hprint` is a library. The whole job in one call:
+`hprint` is a library, and it takes Lean source as a string.
 
 ```lean
 import HPrint
 open HPrint
 
-#eval do IO.print (← printFile "examples/induction.lean")
-#eval do IO.print (← printFile "Foo.lean" { format := .markdown, statement := false })
+#eval do IO.print (← printProof (← IO.FS.readFile "examples/induction.lean"))
 ```
 
 Or take it in stages and stop wherever suits:
 
 | Call | Gives you |
 | --- | --- |
-| `elaborateFile : FilePath → IO Elaborated` | the file elaborated, with its info trees and diagnostics |
+| `elaborate : String → String → IO Elaborated` | the source elaborated, with its info trees and diagnostics |
 | `renderElaborated : Elaborated → Options → IO (List Block)` | the proof as a tree of `Block`s |
-| `renderBlocks : OutFormat → List Block → String` | text, Markdown or LaTeX |
-| `toText` / `toMarkdown` / `toLatex : List Block → String` | one writer directly |
-| `printFile : FilePath → Options → IO String` | all three at once |
+| `toText : List Block → String` | the finished text |
+| `printProof : String → Options → String → IO String` | all three at once |
 
-Reach for `Block` if you want your own writer: it is a plain inductive of
-headings, paragraphs, nested case blocks and `calc` chains, with no Lean types
-in it.
+Reach for `Block` if you want your own output format: it is a plain inductive
+of headings, paragraphs, nested case blocks and `calc` chains, with no Lean
+types in it, and `toText` is a short example of a writer over it.
 
-`Options` has `statement` (restate the theorem before its proof, default
-`true`) and `format` (default `.text`).
+`Options` has one field, `statement`, which restates the theorem before its
+proof; it defaults to `true`.
 
 Because `hprint` elaborates its input, a proof that uses a library has to be
 run from inside that library's Lake project, so that its imports resolve —
 `lake env lean` for a script, or a `#eval` in a file of that project.
-`Elaborated.errors` is non-empty when the file did not elaborate; the goals
+`Elaborated.errors` is non-empty when the source did not elaborate; the goals
 narrated in that case are not the ones you meant.
 
 ## How it works
 
 ```
-file ─▶ Lean frontend ─▶ InfoTree ─▶ steps ─▶ goal diff ─▶ blocks ─▶ text
-                                                                    markdown
-                                                                    latex
+source ─▶ Lean frontend ─▶ InfoTree ─▶ steps ─▶ goal diff ─▶ blocks ─▶ text
 ```
 
-`HPrint/Analysis.lean` runs `Lean.Elab.IO.processCommands` over the file and
+`HPrint/Analysis.lean` runs `Lean.Elab.IO.processCommands` over the source and
 turns the resulting `InfoTree` into a tree of steps: one per tactic, carrying
 its syntax and its `goalsBefore` / `goalsAfter`.
 

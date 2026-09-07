@@ -13,9 +13,8 @@ structure Elaborated where
 def Elaborated.errors (e : Elaborated) : List String :=
   e.messages.filterMap fun (isError, msg) => if isError then some msg else none
 
-def elaborateFile (path : System.FilePath) : IO Elaborated := do
-  let input ← IO.FS.readFile path
-  let inputCtx := Parser.mkInputContext input path.toString
+def elaborate (input : String) (fileName : String := "<input>") : IO Elaborated := do
+  let inputCtx := Parser.mkInputContext input fileName
   let (header, parserState, messages) ← Parser.parseHeader inputCtx
   let (env, messages) ← processHeader header {} messages inputCtx
   let commandState := { Command.mkState env messages {} with infoState.enabled := true }

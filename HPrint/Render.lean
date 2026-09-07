@@ -7,7 +7,6 @@ namespace HPrint
 
 structure Options where
   statement : Bool := true
-  format : OutFormat := .text
   deriving Inhabited
 
 private structure Ctx where
@@ -360,9 +359,9 @@ def renderElaborated (e : Elaborated) (opts : Options := {}) : IO (List Block) :
     out := out ++ (← renderDeclaration c stx steps)
   pure out
 
-def printFile (path : System.FilePath) (opts : Options := {}) : IO String := do
-  let e ← elaborateFile path
-  let blocks ← renderElaborated e opts
-  pure (renderBlocks opts.format blocks)
+def printProof (input : String) (opts : Options := {}) (fileName : String := "<input>") :
+    IO String := do
+  let e ← elaborate input fileName
+  pure (toText (← renderElaborated e opts))
 
 end HPrint
