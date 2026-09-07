@@ -17,32 +17,13 @@ inductive Block where
   | qed (text : String)
   deriving Inhabited
 
-def isWide (c : Char) : Bool :=
-  let v := c.toNat
-  (0x1100 ≤ v && v ≤ 0x115F) ||
-  (0x2E80 ≤ v && v ≤ 0xA4CF) ||
-  (0xAC00 ≤ v && v ≤ 0xD7A3) ||
-  (0xF900 ≤ v && v ≤ 0xFAFF) ||
-  (0xFE30 ≤ v && v ≤ 0xFE6F) ||
-  (0xFF00 ≤ v && v ≤ 0xFF60) ||
-  (0xFFE0 ≤ v && v ≤ 0xFFE6) ||
-  (0x20000 ≤ v && v ≤ 0x3FFFD)
-
-def dispWidth (s : String) : Nat :=
-  s.foldl (fun n c => n + if isWide c then 2 else 1) 0
-
-def isClosing (c : Char) : Bool :=
-  "。、）」』】〉》，．".contains c
-
 def segments (s : String) : List String :=
   let rec go (cs : List Char) (cur : List Char) (acc : List String) : List String :=
     match cs with
     | [] => if cur.isEmpty then acc.reverse else (String.mk cur.reverse :: acc).reverse
     | c :: rest =>
       let cur := c :: cur
-      let breakable :=
-        c == ' ' || (isWide c && !(rest.head?.map isClosing |>.getD true))
-      if breakable then go rest [] (String.mk cur.reverse :: acc)
+      if c == ' ' then go rest [] (String.mk cur.reverse :: acc)
       else go rest cur acc
   go s.toList [] []
 
@@ -50,7 +31,7 @@ def wrapText (text : String) (max : Nat) : List String :=
   let step := fun (acc : List String × String) (chunk : String) =>
     let (lines, cur) := acc
     if cur.isEmpty && chunk.trim.isEmpty then (lines, cur)
-    else if dispWidth cur + dispWidth chunk > max && !cur.isEmpty then
+    else if cur.length + chunk.length > max && !cur.isEmpty then
       (cur.trimRight :: lines, chunk.trimLeft)
     else (lines, cur ++ chunk)
   let (lines, cur) := (segments text).foldl step ([], "")
@@ -62,11 +43,11 @@ def wrapText (text : String) (max : Nat) : List String :=
 private def indent (n : Nat) : String := "".pushn ' ' n
 
 private def padTo (s : String) (n : Nat) : String :=
-  s ++ indent (n - dispWidth s)
+  s ++ indent (n - s.length)
 
 private def calcLines (ls : List CalcLine) (pad : String) : List String :=
-  let lhsW := ls.foldl (fun n l => Nat.max n (dispWidth l.lhs)) 0
-  let opW := ls.foldl (fun n l => Nat.max n (dispWidth l.op)) 0
+  let lhsW := ls.foldl (fun n l => Nat.max n l.lhs.length) 0
+  let opW := ls.foldl (fun n l => Nat.max n l.op.length) 0
   ls.map fun l =>
     let reason := match l.reason with | some r => "    " ++ r | none => ""
     (pad ++ padTo l.lhs lhsW ++ " " ++ padTo l.op opW ++ " " ++ l.rhs ++ reason).trimRight

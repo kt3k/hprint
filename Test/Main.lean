@@ -15,14 +15,10 @@ private def Report.eq [BEq α] [ToString α] (r : Report) (name : String) (actua
 
 private def unitChecks : Report :=
   let r : Report := {}
-  let r := r.eq "dispWidth latin" (dispWidth "abc") 3
-  let r := r.eq "dispWidth wide" (dispWidth "自然数") 6
   let r := r.eq "wrap breaks on spaces" (wrapText "one two three four" 9)
       ["one two", "three", "four"]
-  let jp := wrapText "自然数について帰納法で示す。" 10
-  let r := r.check "wrap japanese respects width" (jp.all fun l => dispWidth l ≤ 10)
-  let r := r.check "wrap japanese never orphans punctuation"
-      (jp.all fun l => !((l.toList.head?.map isClosing).getD false))
+  let r := r.eq "wrap keeps a token that cannot be broken"
+      (wrapText "a nonbreakabletoken b" 6) ["a", "nonbreakabletoken", "b"]
   let sample : List Block :=
     [ .heading "Theorem.", .statement "Every n satisfies P n.", .para "Let n be a natural number.",
       .nested (some "Base case.") [.para "Immediate."],
@@ -66,7 +62,7 @@ private def goldenChecks (update : Bool) (r : Report) : IO Report := do
     let actual := renderBlocks .text 76 blocks
     r := r.check s!"{base} produces a proof" ((actual.splitOn "∎").length ≥ 2)
     for line in actual.splitOn "\n" do
-      if dispWidth line > 76 then
+      if line.length > 76 then
         r := r.check s!"{base} line too wide: {line}" false
     let path := goldenPath base
     if update then
