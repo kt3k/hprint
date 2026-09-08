@@ -29,19 +29,19 @@ structure FixGroup where
   type : Option String := none
   deriving Inhabited
 
-private def joinEn (items : List String) : String :=
+def joinEn (items : List String) : String :=
   match items with
   | [] => ""
   | [a] => a
   | [a, b] => a ++ " and " ++ b
   | _ => String.intercalate ", " items.dropLast ++ " and " ++ items.getLast!
 
-private def labelEn (n : Named) : String :=
+def labelEn (n : Named) : String :=
   match n.name with
   | some nm => s!"{n.stmt} (call this {nm})"
   | none => n.stmt
 
-private def nounsEn : List (String × (String × String × String)) :=
+def nounsEn : List (String × (String × String × String)) :=
   [ ("Nat", ("a natural number", "natural number", "natural numbers")),
     ("Int", ("an integer", "integer", "integers")),
     ("Rat", ("a rational number", "rational number", "rational numbers")),
@@ -59,7 +59,7 @@ private def nounsEn : List (String × (String × String × String)) :=
     ("Char", ("a character", "character", "characters")),
     ("Fin", ("a bounded natural number", "bounded natural number", "bounded natural numbers")) ]
 
-private def reasonsEn : List (String × String) :=
+def reasonsEn : List (String × String) :=
   [ ("omega", "linear arithmetic"),
     ("decide", "a decision procedure"),
     ("native_decide", "a direct computation"),

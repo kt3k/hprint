@@ -6,18 +6,18 @@ import all HPrint.Analysis
 
 open HPrint
 
-private structure Report where
+structure Report where
   passed : Nat := 0
   failed : Array String := #[]
 
-private def Report.check (r : Report) (name : String) (ok : Bool) : Report :=
+def Report.check (r : Report) (name : String) (ok : Bool) : Report :=
   if ok then { r with passed := r.passed + 1 } else { r with failed := r.failed.push name }
 
-private def Report.eq [BEq α] [ToString α] (r : Report) (name : String) (actual expected : α) :
+def Report.eq [BEq α] [ToString α] (r : Report) (name : String) (actual expected : α) :
     Report :=
   r.check s!"{name}: got {actual}, expected {expected}" (actual == expected)
 
-private def unitChecks : Report :=
+def unitChecks : Report :=
   let r : Report := {}
   let sample : List Block :=
     [ .heading "Theorem.", .statement "Every n satisfies P n.", .para "Let n be a natural number.",
@@ -30,16 +30,16 @@ private def unitChecks : Report :=
   let r := r.check "text aligns calc" ((text.splitOn "  a = b    by h").length == 2)
   r
 
-private def goldenPath (base : String) : System.FilePath :=
+def goldenPath (base : String) : System.FilePath :=
   System.mkFilePath ["test", "golden", s!"{base}.txt"]
 
-private def exampleFiles : IO (Array System.FilePath) := do
+def exampleFiles : IO (Array System.FilePath) := do
   let entries ← System.FilePath.readDir "examples"
   let files := entries.filterMap fun e =>
     if e.path.extension == some "lean" then some e.path else none
   pure (files.qsort fun a b => a.toString < b.toString)
 
-private def goldenChecks (update : Bool) (r : Report) : IO Report := do
+def goldenChecks (update : Bool) (r : Report) : IO Report := do
   let mut r := r
   for file in ← exampleFiles do
     let base := (file.fileStem).getD "?"

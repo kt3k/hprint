@@ -71,7 +71,9 @@ That, plus `Options` and `Elaborated`, is the whole public surface. Everything
 else — the block tree, the writer, the wording, the step and goal views — is
 internal, and the package uses Lean's module system to keep it that way: only
 the entry points are marked `public`, and the modules reach each other's
-internals with `import all`.
+internals with `import all`. There is no `private` anywhere — under the module
+system it hides nothing that the absence of `public` does not already hide, and
+`import all` sees through it either way.
 
 `Options` has one field, `statement`, which restates the theorem before its
 proof; it defaults to `true`.

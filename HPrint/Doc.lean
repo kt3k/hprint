@@ -21,19 +21,19 @@ inductive Block where
   | qed (text : String)
   deriving Inhabited
 
-private def indent (n : Nat) : String := "".pushn ' ' n
+def indent (n : Nat) : String := "".pushn ' ' n
 
-private def padTo (s : String) (n : Nat) : String :=
+def padTo (s : String) (n : Nat) : String :=
   s ++ indent (n - s.length)
 
-private def calcLines (ls : List CalcLine) (pad : String) : List String :=
+def calcLines (ls : List CalcLine) (pad : String) : List String :=
   let lhsW := ls.foldl (fun n l => Nat.max n l.lhs.length) 0
   let opW := ls.foldl (fun n l => Nat.max n l.op.length) 0
   ls.map fun l =>
     let reason := match l.reason with | some r => "    " ++ r | none => ""
     (pad ++ padTo l.lhs lhsW ++ " " ++ padTo l.op opW ++ " " ++ l.rhs ++ reason).trimRight
 
-private partial def textOf (bs : List Block) (depth : Nat) : List String :=
+partial def textOf (bs : List Block) (depth : Nat) : List String :=
   bs.flatMap fun b =>
     let pad := indent (2 * depth)
     match b with
@@ -46,13 +46,13 @@ private partial def textOf (bs : List Block) (depth : Nat) : List String :=
       [""] ++ (match title with | some t => [pad ++ t] | none => [])
         ++ textOf body (depth + 1) ++ [""]
 
-private def squeeze (ls : List String) : List String :=
+def squeeze (ls : List String) : List String :=
   ls.foldr (fun l acc =>
     match acc with
     | a :: _ => if l.isEmpty && a.isEmpty then acc else l :: acc
     | [] => if l.isEmpty then [] else [l]) []
 
-private def assemble (ls : List String) : String :=
+def assemble (ls : List String) : String :=
   let ls := squeeze ls
   String.intercalate "\n" (match ls with | "" :: rest => rest | _ => ls) ++ "\n"
 

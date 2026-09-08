@@ -57,16 +57,16 @@ def tag (s : Step) : String :=
 
 end Step
 
-private def transparentKinds : List Name :=
+def transparentKinds : List Name :=
   [ ``Lean.Parser.Term.byTactic, ``Lean.Parser.Tactic.tacticSeq,
     ``Lean.Parser.Tactic.tacticSeq1Indented, ``Lean.Parser.Tactic.tacticSeqBracketed,
     `null, `by, `Lean.cdotTk, ``Lean.Parser.Tactic.paren ]
 
-private def isTokenKind : Name → Bool
+def isTokenKind : Name → Bool
   | .str _ s => !s.isEmpty && !(s.front.isAlpha || s.front == '_')
   | _ => false
 
-private def isUserWritten (stx : Syntax) : Bool :=
+def isUserWritten (stx : Syntax) : Bool :=
   match stx.getHeadInfo with
   | .original .. => true
   | _ => false
@@ -103,29 +103,29 @@ structure GoalView where
   targetIsExists : Bool
   deriving Inhabited
 
-private def headSymbol (e : Expr) : String :=
+def headSymbol (e : Expr) : String :=
   match e.getAppFn with
   | .const n _ => lastComponent n
   | .sort l => if l.isZero then "Prop" else "Type"
   | _ => ""
 
-private def ppStr (e : Expr) : MetaM String := do
+def ppStr (e : Expr) : MetaM String := do
   pure (toString (← ppExpr e))
 
-private def dependentPrefix : Expr → Nat
+def dependentPrefix : Expr → Nat
   | .forallE _ _ b _ => if b.hasLooseBVar 0 then 1 + dependentPrefix b else 0
   | _ => 0
 
-private def arrowPrefix : Expr → Nat
+def arrowPrefix : Expr → Nat
   | .forallE _ _ b _ => if b.hasLooseBVar 0 then 0 else 1 + arrowPrefix b
   | _ => 0
 
-private structure Subject where
+structure Subject where
   names : List String
   type : String
   head : String
 
-private def subjects (items : List (String × String × String)) : List Subject :=
+def subjects (items : List (String × String × String)) : List Subject :=
   (items.splitBy fun a b => a.2.1 == b.2.1).filterMap fun g =>
     g.head?.map fun (_, ty, head) => { names := g.map (·.1), type := ty, head }
 
@@ -168,7 +168,7 @@ partial def premise (e : Expr) : MetaM String := do
 
 end
 
-private def visibleDecls : MetaM (List LocalDecl) := do
+def visibleDecls : MetaM (List LocalDecl) := do
   pure <| (← getLCtx).decls.toList.filterMap id |>.filter fun d => !d.isImplementationDetail
 
 def goalView (ctx : ContextInfo) (mctx : MetavarContext) (g : MVarId) :

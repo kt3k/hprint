@@ -13,11 +13,11 @@ public structure Options where
   statement : Bool := true
   deriving Inhabited
 
-private structure Ctx where
+structure Ctx where
   input : String
   restate : Bool
 
-private structure Sink where
+structure Sink where
   blocks : Array Block := #[]
   pending : Array String := #[]
   deriving Inhabited
@@ -41,15 +41,15 @@ def finish (k : Sink) : List Block := (k.flush).blocks.toList
 
 end Sink
 
-private def tacticName (c : Ctx) (s : Step) : String :=
+def tacticName (c : Ctx) (s : Step) : String :=
   (s.source c.input).takeWhile fun ch => !(ch == ' ' || ch == '\n' || ch == '[')
 
-private def tacticArgs (c : Ctx) (s : Step) : Option String :=
+def tacticArgs (c : Ctx) (s : Step) : Option String :=
   let src := s.source c.input
   let rest := ((src.drop (tacticName c s).length).trim).replace "\n" " "
   if rest.isEmpty then none else some rest
 
-private def firstComponent (src : String) : Option String :=
+def firstComponent (src : String) : Option String :=
   let s := src.trim
   if !(s.startsWith "⟨") then none else
     let stop := fun (acc : List Char × Nat × Bool) (ch : Char) =>
@@ -63,32 +63,32 @@ private def firstComponent (src : String) : Option String :=
     let w := (String.mk cur.reverse).trim
     if w.isEmpty then none else some w
 
-private def prettyArgs (args : Option String) : Option String :=
+def prettyArgs (args : Option String) : Option String :=
   args.map fun a =>
     let a := a.trim
     if a.startsWith "[" && a.endsWith "]" then
       Phrases.list ((a.drop 1 |>.dropRight 1).splitOn "," |>.map (·.trim) |>.filter (!·.isEmpty))
     else a
 
-private def majorPremise (c : Ctx) (s : Step) : Option String :=
+def majorPremise (c : Ctx) (s : Step) : Option String :=
   let t := textAt c.input s.stx[1]
   if t.isEmpty then none else some t
 
-private def afterAssign (src : String) : Option String :=
+def afterAssign (src : String) : Option String :=
   match src.splitOn ":=" with
   | _ :: rest@(_ :: _) =>
     let t := ((String.intercalate ":=" rest).trim).replace "\n" " "
     if t.isEmpty then none else some t
   | _ => none
 
-private def originOf (c : Ctx) (s : Step) (name : String) : Option String :=
+def originOf (c : Ctx) (s : Step) (name : String) : Option String :=
   (afterAssign (s.source c.input)).orElse fun _ =>
     if name == "cases" || name == "rcases" || name == "obtain" then majorPremise c s else none
 
-private def isNew (old : List HypView) (h : HypView) : Bool :=
+def isNew (old : List HypView) (h : HypView) : Bool :=
   !(old.any fun o => o.name == h.name && o.type == h.type)
 
-private def announce (hyps : List HypView) (k : Sink) : Sink :=
+def announce (hyps : List HypView) (k : Sink) : Sink :=
   let (props, objects) := hyps.partition (·.isProp)
   let groups := (objects.splitBy fun a b => a.type == b.type).filterMap fun g =>
     g.head?.map fun h =>
@@ -98,36 +98,36 @@ private def announce (hyps : List HypView) (k : Sink) : Sink :=
   if props.isEmpty then k
   else k.say (Phrases.assume (props.map fun h => { name := some h.name, stmt := h.prose }))
 
-private def howKind (name : String) : HowKind :=
+def howKind (name : String) : HowKind :=
   if name == "rw" || name == "rewrite" || name == "erw" then .rewrite
   else if name.startsWith "simp" || name == "dsimp" then .simplify
   else if name == "unfold" || name == "delta" then .unfold
   else if name == "refine" || name == "apply" || name == "exact" then .apply
   else .other name
 
-private def transforms (kind : HowKind) : Bool :=
+def transforms (kind : HowKind) : Bool :=
   match kind with
   | .rewrite | .simplify | .unfold => true
   | _ => false
 
-private def reasonFor (name : String) (args : Option String) : Option String :=
+def reasonFor (name : String) (args : Option String) : Option String :=
   (List.lookup name Phrases.reasons).orElse fun _ =>
     if name == "exact" || name == "apply" then args else none
 
-private def justification (c : Ctx) (s : Step) (name : String) : Option String :=
+def justification (c : Ctx) (s : Step) (name : String) : Option String :=
   if name == "have" || name == "suffices" || name == "replace" then
     (afterAssign (s.source c.input)).filter fun t => !t.startsWith "by"
   else none
 
-private partial def findAll (p : Syntax → Bool) (stx : Syntax) : List Syntax :=
+partial def findAll (p : Syntax → Bool) (stx : Syntax) : List Syntax :=
   (if p stx then [stx] else []) ++ stx.getArgs.toList.flatMap (findAll p)
 
-private def sourceOf (c : Ctx) (stx : Syntax) : String :=
+def sourceOf (c : Ctx) (stx : Syntax) : String :=
   (textAt c.input stx).replace "\n" " "
 
-private def relations : String := "↔≠≤≥⊆≡∣∈=<>"
+def relations : String := "↔≠≤≥⊆≡∣∈=<>"
 
-private def splitRelation (src : String) : String × String × String :=
+def splitRelation (src : String) : String × String × String :=
   let rec go (cs : List Char) (seen : List Char) (depth : Nat) : Option (String × String × String) :=
     match cs with
     | [] => none
@@ -143,7 +143,7 @@ private def splitRelation (src : String) : String × String × String :=
   | some (l, op, r) => (l.trim, op, r.trim)
   | none => (src.trim, "", "")
 
-private def calcBlock (c : Ctx) (s : Step) (k : Sink) : Sink :=
+def calcBlock (c : Ctx) (s : Step) (k : Sink) : Sink :=
   let steps := findAll (fun n =>
     n.isOfKind `Lean.calcFirstStep || n.isOfKind `Lean.calcStep) s.stx
   let lines := steps.map fun st =>
@@ -158,26 +158,26 @@ private def calcBlock (c : Ctx) (s : Step) (k : Sink) : Sink :=
   if lines.isEmpty then k.say (Phrases.verbatim (s.source c.input))
   else (k.say Phrases.computation).block (.calcBlock lines)
 
-private def witnessOf (c : Ctx) (s : Step) : Option String :=
+def witnessOf (c : Ctx) (s : Step) : Option String :=
   match tacticArgs c s with
   | some a => firstComponent a
   | none => none
 
-private def stateGoal (g : GoalView) (k : Sink) : Sink :=
+def stateGoal (g : GoalView) (k : Sink) : Sink :=
   k.say (if g.targetIsFalse then Phrases.mustShowFalse else Phrases.mustShow g.targetProse)
 
-private inductive Nesting where
+inductive Nesting where
   | leaf
   | inline
   | subproof
   | branches (groups : List (String × List Step))
 
-private def groupByGoal (steps : List Step) : List (List Step) :=
+def groupByGoal (steps : List Step) : List (List Step) :=
   steps.splitBy fun a b => a.info.goalsBefore.head? == b.info.goalsBefore.head?
 
 mutual
 
-private partial def classify (s : Step) (fresh : List HypView) (produced : Nat) :
+partial def classify (s : Step) (fresh : List HypView) (produced : Nat) :
     IO Nesting := do
   if s.children.isEmpty then return .leaf
   let parent := s.info.goalsBefore.head?
@@ -193,13 +193,13 @@ private partial def classify (s : Step) (fresh : List HypView) (produced : Nat) 
       g.head?.map fun h => (h.tag, g)
     return .branches groups
 
-private partial def narrate (c : Ctx) (steps : List Step) (k : Sink) : IO Sink := do
+partial def narrate (c : Ctx) (steps : List Step) (k : Sink) : IO Sink := do
   let mut k := k
   for s in steps do
     k ← narrateStep c s k
   pure k
 
-private partial def narrateStep (c : Ctx) (s : Step) (k : Sink) : IO Sink := do
+partial def narrateStep (c : Ctx) (s : Step) (k : Sink) : IO Sink := do
   let name := tacticName c s
   let args := prettyArgs (tacticArgs c s)
   let kind := howKind name
@@ -268,7 +268,7 @@ private partial def narrateStep (c : Ctx) (s : Step) (k : Sink) : IO Sink := do
     else
       pure (k.say (Phrases.splitInto produced))
 
-private partial def narrateBranching (c : Ctx) (s : Step) (g : GoalView) (isInduction : Bool)
+partial def narrateBranching (c : Ctx) (s : Step) (g : GoalView) (isInduction : Bool)
     (branches : List (String × List Step)) (k : Sink) : IO Sink := do
   let subject := (majorPremise c s).getD (s.source c.input)
   let noun := (g.hyps.find? fun h => h.name == subject).bind fun h => Phrases.typeNoun h.head .bare
@@ -298,7 +298,7 @@ private partial def narrateBranching (c : Ctx) (s : Step) (g : GoalView) (isIndu
         k := k.block (.nested label (body.finish))
   pure k
 
-private partial def narrateSideProof (c : Ctx) (s : Step) (fresh : List HypView) (k : Sink) :
+partial def narrateSideProof (c : Ctx) (s : Step) (fresh : List HypView) (k : Sink) :
     IO Sink := do
   let item : Named := match fresh.head? with
     | some h => { name := some h.name, stmt := h.prose }
@@ -309,16 +309,16 @@ private partial def narrateSideProof (c : Ctx) (s : Step) (fresh : List HypView)
 
 end
 
-private def declKeyword (stx : Syntax) : String :=
+def declKeyword (stx : Syntax) : String :=
   if (stx.find? (·.isOfKind ``Lean.Parser.Command.example)).isSome then "example"
   else if (stx.find? (·.isOfKind ``Lean.Parser.Command.definition)).isSome then "def"
   else if (stx.find? (·.isOfKind ``Lean.Parser.Command.abbrev)).isSome then "abbrev"
   else "theorem"
 
-private def declName (stx : Syntax) : Option String :=
+def declName (stx : Syntax) : Option String :=
   (stx.find? (·.isOfKind ``Lean.Parser.Command.declId)).map fun d => d[0].getId.toString
 
-private def renderDeclaration (c : Ctx) (stx : Syntax) (steps : List Step) : IO (List Block) := do
+def renderDeclaration (c : Ctx) (stx : Syntax) (steps : List Step) : IO (List Block) := do
   let mut k : Sink := default
   k := k.block (.heading (Phrases.headingTheorem (declKeyword stx) (declName stx)))
   match steps.head? with
@@ -349,7 +349,7 @@ partial def declarationsOf (t : InfoTree) : List (Syntax × List Step) :=
       else cs.toList.flatMap declarationsOf
     | _ => cs.toList.flatMap declarationsOf
 
-private def renderElaborated (e : Elaborated) (opts : Options := {}) : IO (List Block) := do
+def renderElaborated (e : Elaborated) (opts : Options := {}) : IO (List Block) := do
   let c : Ctx := { input := e.input, restate := opts.statement }
   let mut out : List Block := []
   for (stx, steps) in e.trees.flatMap declarationsOf do
