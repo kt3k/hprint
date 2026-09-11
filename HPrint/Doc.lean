@@ -1,7 +1,5 @@
 module
 
-
-
 namespace HPrint
 
 structure CalcLine where
