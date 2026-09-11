@@ -1,0 +1,18 @@
+name = "hprint"
+version = "0.1.0"
+defaultTargets = ["HPrint", "test"]
+testDriver = "test"
+
+# The module system is what keeps everything but the entry points unexported.
+[leanOptions]
+experimental.module = true
+
+[[lean_lib]]
+name = "HPrint"
+
+# The test driver elaborates Lean files, so it must be able to load
+# `Init`/`Lean` oleans and run the interpreter.
+[[lean_exe]]
+name = "test"
+root = "Test.Main"
+supportInterpreter = true
